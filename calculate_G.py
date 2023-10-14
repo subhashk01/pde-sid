@@ -1,4 +1,5 @@
 from sympy import symbols, diff, Function, sympify, lambdify, simplify
+import torch
 import re
 import numpy as np
 from util import find_highest_derivative
@@ -111,9 +112,9 @@ def create_matrix(bs, f, us):
 
 
 if __name__ ==  '__main__':
-    bs = ['2*u**3-u_x**2']
-    f = '-u_xxx+6*u*u_x'
+    bs = ['2*u**3-u_x**2', 'u_x**2']
+    f = 'u*u_x+6*u_xx'
     us = np.load('test_curves.npy')
-    col = calculate_matrix_columns(bs[0], f, us)
-    print(np.sum(col**2))
+    num_derivs = 3
+    print(create_matrix(bs, f, us))
    
