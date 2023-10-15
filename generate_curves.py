@@ -21,12 +21,12 @@ def gaussians(x_vals, plot=False):
         gaussian = torch.exp(-((x_vals - mu_val)**2) / (2 * sigma_val**2))
 
         # Store the values
-        y_vals[0] += A/(math.sqrt(2*math.pi)*sigma_val) * gaussian
+        y_vals[0] += A * gaussian
 
         # Differentiate and store other derivatives
         for i in range(1, config.num_derivs+1):
             gaussian = torch.autograd.grad(gaussian.sum(), x_vals, create_graph=True)[0]
-            y_vals[i] += A/(math.sqrt(2*math.pi)*sigma_val) * gaussian
+            y_vals[i] += A * gaussian
 
     # Convert to numpy for plotting
     x_vals_np = x_vals.detach().numpy()
@@ -58,18 +58,23 @@ if __name__ == '__main__':
 
     # Compute f
     f = y[0][0] * y[0][1]*y[0][2]
+    print(f.shape)
+    print
+    f_derivative = torch.autograd.grad(f[2], x[2], create_graph=True)[0]    
 
-    # Compute the derivative of f w.r.t. x
-    f_derivative = torch.autograd.grad(f.sum(), x, create_graph=True)[0]
+    # # Compute the derivative of f w.r.t. x
+    # for q in range(30):
+    #     print(q)
+    #     f_derivative = torch.autograd.grad(f.sum(), x, create_graph=True)[0]
 
-    # Plot f
-    plt.plot(x.detach().numpy(), f.detach().numpy(), label='f')
+    # # Plot f
+    # plt.plot(x.detach().numpy(), f.detach().numpy(), label='f')
     
-    # Plot the derivative of f
-    plt.plot(x.detach().numpy(), f_derivative.detach().numpy(), label='df/dx')
-    plt.axhline(y = 0)
+    # # Plot the derivative of f
+    # plt.plot(x.detach().numpy(), f_derivative.detach().numpy(), label='df/dx')
+    # plt.axhline(y = 0)
     
-    plt.legend()
-    plt.show()
+    # plt.legend()
+    # plt.show()
 
-    print(y.shape)
+    # print(y.shape)
