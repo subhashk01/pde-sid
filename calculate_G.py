@@ -83,16 +83,19 @@ def grad_basis_function(b, us):
     return b_deriv  # size P, num_derivs, N_p
 
 
-def calculate_matrix_columns(b, f, us):
-    # calculates each column of G (g(u') for each b(u') for all P points)
-
+def calculate_matrix_columns_presum(b,f,us):
     b_der = find_highest_derivative(b)
     fs = differentiate_f(f, b_der, us)
     bs = grad_basis_function(b, us)
     assert(bs.shape == fs.shape) # should be P, num_derivs, N_p
     column_presum = np.einsum('ijk,ijk->ik', bs, fs) # should be P, N_p
     assert(column_presum.shape == (us.shape[0], us.shape[2])) # should be P, N_p
-    ax = np.amax(column_presum, axis=1) # max of every P row
+    return column_presum
+
+def calculate_matrix_columns(b, f, us):
+    # calculates each column of G (g(u') for each b(u') for all P points)
+
+    column_presum = calculate_matrix_columns_presum(b,f,us)
     column = np.sum(column_presum, axis=1) # sum across N_p
     assert(column.shape == (us.shape[0],)) # should be P
     return column

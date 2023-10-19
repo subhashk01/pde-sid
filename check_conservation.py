@@ -5,10 +5,9 @@ from calculate_G import find_highest_derivative, calculate_matrix_columns
 from model import find_cq, threshold_and_format
 from util import read_bases, check_function_integral
 from configs import Config
+
 plt.rcParams['text.usetex'] = True
 config = Config()
-
-
 
 def check_bases(bases):
     # checks the integral of each basis function
@@ -21,8 +20,8 @@ def check_bases(bases):
     
 def check_correlation(bases, us):
     # function sees how correlated the integrals of two bases are
-
     # Ensure there are only two bases
+
     assert len(bases) == 2, 'need 2 bases for scatter'
 
     # Get the integral values for each base
@@ -56,10 +55,12 @@ def check_correlation(bases, us):
 
 
 def evaluate_basis_integral(basis,f,us):
+    # calculates int dh/dt for a basis function across all curves
     integral = calculate_matrix_columns(basis, f, us)
     return integral
 
 def test_basis_integral(basis,f,us):
+    # sums int dh/dt for a basis function across all curves
     res = evaluate_basis_integral( basis,f,us)
     rmse = np.sqrt(np.mean(res**2))
     return rmse
@@ -67,62 +68,37 @@ def test_basis_integral(basis,f,us):
 
 
 
-
-def visualize_basis_results(results,b, f):
-    us = np.load('test_curves.npy')
-    res = results['sol_cq_sparse']
-    cq = threshold_and_format(b, res)
-    data = []
-    for i,c in enumerate(cq):
-        ev = evaluate_basis_integral(c,f,us)
-        ev = np.abs(ev)
-        data.append(ev)
-        rmse = np.sqrt(np.mean(ev**2))
-        print(f'Eq {i+1}: {c}\n\tRMSE = {rmse:.2e}\n')
-    data = np.array(data)
-    num_eq = data.shape[0]
-
-    # Same data setup as above...
-
-    # Log-transformed box plot
-    log_data = np.log10(np.abs(data))
-    fig, ax = plt.subplots()
-    ax.boxplot(log_data.T, vert=True, patch_artist=True)
-
-    # Styling
-    ax.set_title(f'f(x) = {f}\nLog-Transformed Box Plot')
-    ax.set_xlabel('Conserved Quantities')
-    ax.set_ylabel('log10sum(dH/dx * f(x))')
-    ax.set_xticks(range(1, num_eq + 1))
-    ax.set_xticklabels([f'Eq {i+1}\n{cq[i]}' for i in range(num_eq)])
-
 def graph_singular_values(results, f, us):
     s = results['s_cq']
     s_cq = results['sol_cq_sparse']
     non_s_cq = results['non_sol_cq_sparse']
     bs = results['bases']
 
+
     concat = np.concatenate((s_cq, non_s_cq))
 
     expressions = threshold_and_format(bs, concat)
-    print(expressions)
     rmses = []
     
     plt.figure(figsize = (8,6))
+    trivials = None
+    if 'trivial_non_sol' in results.keys():
+        trivials = np.concatenate((results['trivial_sol'], results['trivial_non_sol']))
+
     for i, e in enumerate(expressions):
-        if 'trivials' in results.keys() and results['trivials'][i] == 1:
-            plt.scatter(i, s[i], label = f'REMOVED CQ{i+1}: {e}', c = 'k')
+        ev = evaluate_basis_integral(e, f, us)
+        rmse = np.sqrt(np.mean(ev**2))
+        rmses.append(rmse)
+        if trivials is not None and trivials[i] == 1:
+            plt.scatter(i, s[i], label = f'TRIVIAL CQ{i+1}: {e}', c = 'k')
         else:
-            ev = evaluate_basis_integral(e, f, us)
-            rmse = np.sqrt(np.mean(ev**2))
-            rmses.append(rmse)
             plt.scatter(i, s[i], label = f'CQ{i+1}: {e}')
 
     for i, e in enumerate(expressions):
         plt.annotate(f'{rmses[i]:.2e}', (i, s[i]))  # Adds RMSE text to each point
+
     rest_x = range(len(expressions), len(s))
     rest_y = s[len(expressions):]
-    print(len(rest_x), len(rest_y))
     plt.scatter(rest_x, rest_y)
     plt.plot(range(len(s)),s, c = 'k', lw = '0.5', label = 'Singular Values')
     plt.axhline(y=1e-6, color='r', linestyle='--', label = 'TOLERANCE')
@@ -143,13 +119,8 @@ def graph_singular_values(results, f, us):
 if __name__ == '__main__':
     # read the file basis.txt into a variable named b
     b = read_bases()
-    f = 'u*u_x'
+    f = 'u_xxx-6*u*u_x'
     us = np.load('test_curves.npy')
-    results = find_cq(f, b, check_trivial_bases=False, check_trivial_solutions = False)
+    results = find_cq(f, b, check_trivial_bases=True, check_trivial_solutions = True)
     graph_singular_values(results, f, us)
-    for t in ['sol_cq_sparse', 'non_sol_cq_sparse']:
-        readable = threshold_and_format(b, results[t])
-        print(t)
-        for r in readable:
-            print('\t'+r)
 

@@ -8,7 +8,7 @@ from util import read_bases
 config = Config()
 
 
-def gaussians():
+def gaussians(plot = True):
     # generates u using a gaussian mixture model. returns array of form [1+num_derivs, N_p]
 
     # N_g = number of gaussians in our mixture model
@@ -41,12 +41,10 @@ def gaussians():
         for i,d in enumerate(numerical_derivatives):
             y_vals[i] += A/(math.sqrt(2*math.pi)*sigma_val) * d(x_vals)
 
-    plot = True
     if plot:
         plt.plot(x_vals, y_vals[0], label  = 'u'+f' sum = {np.sum(y_vals[i]):.1e}')
         for i in range(1, y_vals.shape[0]):
             y_sum = np.sum(y_vals[i])
-            print('begin = ', y_vals[i][0], ' end = ', y_vals[i][-1])
             plt.plot(x_vals, y_vals[i], label  = 'u_'+'x'*i+f' sum = {y_sum:.1e}')
         plt.legend()
         plt.show()
@@ -57,7 +55,7 @@ def gaussians():
 def generate_us():
     y_vals = []
     for i in range(config.num_curves):
-        _, y_val = gaussians()
+        _, y_val = gaussians(plot = False)
         y_vals.append(y_val)
         if i%5 == 0:
             print(i)
@@ -70,4 +68,4 @@ def generate_us():
 
 
 if __name__ == '__main__':
-    pass
+    gaussians()

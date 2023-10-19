@@ -1,6 +1,7 @@
 import re
 import numpy as np
 from sympy import symbols, sympify, simplify, lambdify
+import torch
 
 def find_highest_derivative(f_str):
     # Find all occurrences of 'u_xxx...' in the string
@@ -63,4 +64,13 @@ def calculate_neff(s, A = 0, B = 1000):
     # A is the threshold, B is the width parameter (when B->infinity, the threshold becomes hard) 
     n = 1/(1+np.exp(-(A-np.log10(s))/B))
     n = np.sum(n, axis=1)
+    return n
+
+
+def calculate_neff_torch(s, A = 0, B = 1000):
+    #n(s_i) = sigmoid((A-log(s_i))/B), and then n_eff = \sum n(s_i). 
+    # A is the threshold, B is the width parameter (when B->infinity, the threshold becomes hard) 
+    # Convert the operations to PyTorch equivalents
+    n = 1 / (1 + torch.exp(-(A - torch.log10(s)) / B))
+    n = torch.sum(n)
     return n

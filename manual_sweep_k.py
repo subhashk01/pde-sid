@@ -38,7 +38,7 @@ def sweep_k(f, title):
     np.save(f'{title}_sings.npy', sings)
 
 
-def plot_A_B(f, title, A, B):
+def plot_A_B(f, title, A = 2, B = 1000):
     # plots the singular values annotated with n_eff for a single A, B
     s = np.load(title+'_sings.npy')
     ks = np.linspace(-10,10,201)
@@ -52,7 +52,7 @@ def plot_A_B(f, title, A, B):
     plt.yscale('log')
     plt.show()
 
-def plot_grid_A_B(title, A = None, B = None):
+def plot_grid_A_B(f, title, A = None, B = None):
     #we plot the n_eff vs k curve for singular values for different values of A and B
     #this is plotted on a grid. we annotate each subplot with the max n_eff value
     s = np.load(f'{title}_sings.npy')
@@ -71,7 +71,7 @@ def plot_grid_A_B(title, A = None, B = None):
             val = np.max(vals)
             
             # Plot vals for the specific a, b
-            axs[i, j].plot(ks, vals)
+            axs[i, j].plot(ks, vals, color = 'b')
             axs[i, j].set_title(f"A={a}, B={b}")
             
             # Removing ticks, labels, and numbers
@@ -83,7 +83,7 @@ def plot_grid_A_B(title, A = None, B = None):
             axs[i, j].set_ylabel('')
             # annotate plot with val
             axs[i, j].annotate(f"max neff= {val:.2f}", xy=(0.1, 0.8), xycoords='axes fraction', fontsize=12)
-    
+    plt.title(f)
     # Adjusting space between subplots for clarity
     plt.tight_layout()
     plt.show()
@@ -118,10 +118,8 @@ def plot_small_k(f, A = 2, B = 1000):
 
 if __name__ == '__main__':
     f, title = 'u_xxx-6*u*u_x+{k}*u_xx', 'kdv'
-
-
     f, title = 'u_x*u+{k}*u_xx', 'burgers'
-    plot_grid_A_B(f, title)
+    plot_small_k(f,5, 1000)
 
 
 
