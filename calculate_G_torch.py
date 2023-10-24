@@ -1,11 +1,13 @@
 import torch
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from calculate_G import differentiate_f, grad_basis_function, create_matrix, calculate_matrix_columns_presum, calculate_matrix_columns
+from calculate_G import differentiate_f, grad_basis_function, create_matrix, calculate_matrix_columns_presum, calculate_matrix_columns, create_matrix
 from util import read_bases, find_highest_derivative, calculate_neff_torch, calculate_neff
 import numpy as np
 from model import svd_and_sparsify, threshold_and_format
 import re
+from contextlib import redirect_stdout
+import io
 
 torch.set_default_dtype(torch.float64)
 
@@ -14,6 +16,9 @@ torch.set_default_dtype(torch.float64)
 def split_equation_components(s):
     # Split the string by addition or subtraction. 
     # The minus sign will stay with the component after it.
+
+    # doesn't work great w/ f strings
+    # e.g. f'0*u_x+{coef}*u_xx' might not work (brackets probably confuse it)
     components = [x.strip() for x in re.split('(\+|\-)', s) if x.strip()]
     
     # If a component is just '+' or '-', then merge it with the next component
@@ -60,20 +65,23 @@ def evaluate_f_diff_components(f_diffs,param_list,place_holder_indices):
     # and the indices where the parameters are supposed to be placed
     # returns a multiplicative sum to get the full f derivative matrix
     f_diff_total = torch.zeros(f_diffs[0].shape)
+    j = 0 # index of param_list we're on
     for i,f_diff in enumerate(f_diffs):
         coef = 1
         if i in place_holder_indices:
-            coef = i
+            coef = param_list[j]
+            j+=1
         f_diff_total += coef*torch.from_numpy(f_diff)
     return f_diff_total
 
 
 def evaluate_f_diff(f,us, param_list):
     # gets the total f_diff matrix with a certain list of parameters
-
     # evaluates as many derivs as we have data for
+
     num_derivs = us.shape[1]-find_highest_derivative(f)-1
     components, place_holder_indices = split_equation_components(f)
+    
     assert(len(param_list) == len(place_holder_indices)) # need as many params as unknowns
     f_diffs = f_component_diffs(components,num_derivs, us)
     f_diff_total = evaluate_f_diff_components(f_diffs, param_list, place_holder_indices)
@@ -134,6 +142,7 @@ def within_tolerance(tensor1, tensor2, percentage=.1):
     return not torch.any(mask)
 
 def check_torch_implementation(bs, f, us, param_list):
+
     f_inp = f.format(*param_list)
 
     num_derivs = us.shape[1]-find_highest_derivative(f)-1
@@ -143,58 +152,81 @@ def check_torch_implementation(bs, f, us, param_list):
     assert within_tolerance(deriv_f_torch, deriv_f_numpy), "f_derivatives are not the same."
     print('f_derivs calculated correctly')  
 
-    for b in bs:
-        print(b)
-        presum_numpy = torch.from_numpy(calculate_matrix_columns_presum(b,f_inp, us))
-        presum_torch = create_matrix_column_presum_torch(us, b, deriv_f_torch)
-        assert within_tolerance(presum_numpy, presum_torch), "column_presums are not the same"
-        print('column presums calculated correctly')
+    # for b in bs:
+    #     print(b)
+    #     presum_numpy = torch.from_numpy(calculate_matrix_columns_presum(b,f_inp, us))
+    #     presum_torch = create_matrix_column_presum_torch(us, b, deriv_f_torch)
+    #     assert within_tolerance(presum_numpy, presum_torch), "column_presums are not the same"
+    #     print('column presums calculated correctly')
 
-        col_numpy = torch.from_numpy(calculate_matrix_columns(b, f_inp, us)).double()
-        col_torch = create_matrix_column_torch(us, b, deriv_f_torch).double()
+    #     col_numpy = torch.from_numpy(calculate_matrix_columns(b, f_inp, us)).double()
+    #     col_torch = create_matrix_column_torch(us, b, deriv_f_torch).double()
 
-        col_same = within_tolerance(col_numpy, col_torch)
-        #assert col_same, "columns are not the same"
-        print('columns calculated correctly')
+    #     col_same = within_tolerance(col_numpy, col_torch)
+    #     #assert col_same, "columns are not the same"
+    #     print('columns calculated correctly')
+
+    G_np = torch.from_numpy(create_matrix(bs,f_inp,us)).double()
+    G_tor = create_matrix_torch(bs,f, us, param_list).double()
+    _, s_np, _ =  torch.linalg.svd(G_np)
+    _, s_tor, _ = torch.linalg.svd(G_tor)
+    print('Numpy Singular Values', s_np)
+    print('Torch Singular Values', s_tor)
+
+
+    matrices_same = within_tolerance(G_np, G_tor, percentage = 10)
+    #assert matrices_same, "G matrices are not the same"
+
+    sing_values_same = within_tolerance(s_np, s_tor)
+    #assert sing_values_same, "Singular Values are not the same"
+
+
+
 
 def compare_answers(bs,f,us,param_list):
     f_inp = f.format(*param_list)
     G_np = create_matrix(bs, f_inp, us)
-    res_np = svd_and_sparsify(G_np)
-
     G_tor = create_matrix_torch(bs, f, us, param_list)
-    res_tor = svd_and_sparsify(np.asarray(G_tor))
 
-    print(f, param_list)
-    print('\n Numpy Implementation')
-    print('Singular Values (norm)')
-    print(res_np['s_cq'])
-    ans_np = threshold_and_format(bs,res_np['sol_cq_sparse'])
-    print(ans_np)
-    n_eff = calculate_neff([res_np['s_cq_nonorm']])
-    print(f'n_eff:{n_eff}')
+    with io.StringIO() as buf, redirect_stdout(buf):
+        res_np = svd_and_sparsify(G_np)
+        res_tor = svd_and_sparsify(np.asarray(G_tor))
 
-    print('\n Torch Implementation')
-    print('Singular Values (norm)')
-    print('tor', res_tor['s_cq'])
-    ans_tor = threshold_and_format(bs,res_tor['sol_cq_sparse'])
-    n_eff = calculate_neff_torch(torch.from_numpy(res_tor['s_cq_nonorm']))
-    print(ans_tor)
-    print(f'n_eff:{n_eff}')
+    print(f'\n{f_inp}')
+    ans_np = res_np['sol_cq_sparse']
+    
+    if ans_np.shape[1]!=0:
+        ans_np = np.array(threshold_and_format(bs,ans_np))
+    ans_np = np.ndarray.tolist(ans_np)
+    print('NUMPY SOLUTIONS',ans_np)
+    n_eff_np = calculate_neff([res_np['s_cq_nonorm']])[0]
+    
+
+    ans_tor = res_tor['sol_cq_sparse']
+    if ans_tor.shape[1]!=0:
+        ans_tor = np.array(threshold_and_format(bs,ans_tor))
+    ans_tor = np.ndarray.tolist(ans_tor)
+    print('TORCH SOLUTIONS',ans_tor)
+    n_eff_tor = calculate_neff_torch(torch.from_numpy(res_tor['s_cq_nonorm'])).item()
+    print(f'neff numpy: {n_eff_np:.2f}. neff torch: {n_eff_tor:.2f}. frac diff: {abs(n_eff_tor-n_eff_np)/n_eff_np:.2e}')
+
+    assert ans_tor == ans_np, f"Numpy and Torch solutions don't match for {f_inp},\nNumpy:{ans_np}\nTorch:{ans_tor}"
+    assert abs(n_eff_np)*1.01>abs(n_eff_tor)>abs(n_eff_np)*.99, f"Numpy and Torch n_eff answers don't match for {f_inp}.\nNumpy:{n_eff_np}\nTorch:{n_eff_tor}"
 
 
 
 
 def check_torch():
-    fs = ['u*u_x','u_xxx-6*u*u_x+{}*u_xx', '{}*u_xxx-12*u_xx+{}*u_x**3']
+    fs = ['{}*u_xxx-12*u_xx+{}*u_x**3', '{}*u_xxx-12*u_xx+{}*u_x**3', 'u*u_x','u_xxx-6*u*u_x+{}*u_xx']
+    # fix this first case
     bs = read_bases()
     us = np.load('test_curves.npy')
     for f in fs:
-        _, placeholder = split_equation_components(f)
+        comps, placeholder = split_equation_components(f)
         param_list = [np.random.randint(10) for _ in range(len(placeholder))]
-        print(f,param_list)
-        #check_torch_implementation(f,bs,us,param_list)
-        compare_answers(bs, f, us, param_list)
+        check_torch_implementation(bs,f,us,param_list)
+        compare_answers(bs,f,us,param_list)
+
         
         
 

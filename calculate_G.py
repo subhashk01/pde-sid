@@ -11,6 +11,8 @@ def differentiate_f(f_str, num_derivs, us):
     # we then evaluate diff at each point in us (u are the P curves and their derivatives)
     # us is matrix of size P (num curvs) x num_derivs (of u) and N_p (num points evaluated at)
 
+    # KNOWN BUG: DOES NOT WORK WHEN A COEFFICIENT IS 0.
+
     # Define the variable
     x = symbols('x')
 
@@ -44,11 +46,15 @@ def differentiate_f(f_str, num_derivs, us):
         f_func = lambdify([deriv_list], f) # makes useable function out of derivative
         f_vals = []
         for p in range(us.shape[0]): # might be a faster way to do this. evaluates derivativ
-            f_vals.append(f_func(us[p])) # gives all N_p values for each of the derivatives in u
+            func_val = f_func(us[p])
+            if type(func_val) == int and func_val == 0: # only happens when 0 is the coefficient
+                func_val = [0]*us.shape[2]
+            f_vals.append(func_val) # gives all N_p values for each of the derivatives in u
         f_deriv.append(f_vals)
         past_f = f
 
     f_deriv = np.array(f_deriv)
+
     f_deriv = np.transpose(f_deriv, (1,0,2))
     assert(f_deriv.shape == (us.shape[0], num_derivs + 1, us.shape[2])) # should be P, num_derivs, N_p
     
@@ -114,9 +120,5 @@ def create_matrix(bs, f, us):
 
 
 if __name__ ==  '__main__':
-    bs = ['2*u**3-u_x**2']
     f = '-u_xxx+6*u*u_x'
-    us = np.load('test_curves.npy')
-    col = calculate_matrix_columns(bs[0], f, us)
-    print(np.sum(col**2))
    
