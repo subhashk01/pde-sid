@@ -166,12 +166,16 @@ if __name__ == '__main__':
     title = 'burgers'
     lrs = [1e-3,1e-4]
     for lr in lrs:
-        optimize(f, title, lr = lr, epochs = 5000)
+        filename = f'lr{lr}_A0_B1000_epochs5000_cos'
+        plot_loss_landscape(f, title, filename)
+        #optimize(f, title, lr = lr, epochs = 5000)
 
     
     
     f = 'u_xxx-6*u*u_x+{}*u_xx'
     title = 'kdv'
     for lr in lrs:
-        optimize(f, title, lr = lr, epochs = 5000)
+        filename = f'lr{lr}_A0_B1000_epochs5000_cos'
+        plot_loss_landscape(f, title, filename)
+        #optimize(f, title, lr = lr, epochs = 5000)
 

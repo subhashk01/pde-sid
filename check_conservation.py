@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from calculate_G import find_highest_derivative, calculate_matrix_columns
 from model import find_cq, threshold_and_format
-from util import read_bases, check_function_integral
+from util import read_bases, check_function_integral, extract_lhs_variables, extract_rhs
 from configs import Config
 
 plt.rcParams['text.usetex'] = True
@@ -54,9 +54,14 @@ def check_correlation(bases, us):
     plt.show()
 
 
-def evaluate_basis_integral(basis,f,us):
+def evaluate_basis_integral(basis,fs,us, variables):
     # calculates int dh/dt for a basis function across all curves
-    integral = calculate_matrix_columns(basis, f, us)
+    integral = None
+    for i, wrt in enumerate(variables):
+        integral_wrt = calculate_matrix_columns(basis, fs[i], us, wrt, variables)
+        if integral is None:
+            integral = np.zeros(integral_wrt.shape)
+        integral+=integral_wrt
     return integral
 
 def test_basis_integral(basis,f,us):
@@ -68,12 +73,14 @@ def test_basis_integral(basis,f,us):
 
 
 
-def graph_singular_values(results, f, us):
+def graph_singular_values(results, fs, us):
     s = results['s_cq']
     s_cq = results['sol_cq_sparse']
     non_s_cq = results['non_sol_cq_sparse']
     bs = results['bases']
 
+    variables = extract_lhs_variables(fs)
+    rhs = extract_rhs(fs)
 
     concat = np.concatenate((s_cq, non_s_cq))
 
@@ -86,7 +93,7 @@ def graph_singular_values(results, f, us):
         trivials = np.concatenate((results['trivial_sol'], results['trivial_non_sol']))
 
     for i, e in enumerate(expressions):
-        ev = evaluate_basis_integral(e, f, us)
+        ev = evaluate_basis_integral(e, rhs, us, variables)
         rmse = np.sqrt(np.mean(ev**2))
         rmses.append(rmse)
         if trivials is not None and trivials[i] == 1:
@@ -119,7 +126,7 @@ def graph_singular_values(results, f, us):
 if __name__ == '__main__':
     # read the file basis.txt into a variable named b
     b = read_bases()
-    f = 'u_xxx-6*u*u_x'
+    f = ['u_t = u_xxx-6*u*u_x']
     us = np.load('test_curves.npy')
     results = find_cq(f, b, check_trivial_bases=True, check_trivial_solutions = True)
     graph_singular_values(results, f, us)

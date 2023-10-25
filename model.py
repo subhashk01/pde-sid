@@ -1,13 +1,13 @@
 import autograd.numpy as np
 from autograd import grad, jacobian
 from scipy.optimize import minimize
-from calculate_G import create_matrix
+from calculate_G import create_matrices
 import copy
 from util import read_bases, check_function_integral
 
     
     
-def find_cq(f, bases, check_trivial_bases = True, check_trivial_solutions = True, seed = 0):
+def find_cq(fs, bases, check_trivial_bases = True, check_trivial_solutions = True, seed = 0):
     np.random.seed(seed)
     # load data
     print("#### Loading data ####")
@@ -23,7 +23,7 @@ def find_cq(f, bases, check_trivial_bases = True, check_trivial_solutions = True
             print('Remaining: ', bases)
     
     print("#### Computing bases and gradients #####")
-    f_grad_prod = create_matrix(bases, f, us)
+    f_grad_prod = create_matrices(bases, fs, us)
     results = svd_and_sparsify(f_grad_prod)
     results['bases'] = bases
 
@@ -187,10 +187,8 @@ def threshold_and_format(b, a, threshold=1e-1):
     
 
 if __name__ == '__main__':
-    f = 'u_xxx-6*u*u_x'
+    f = ['u_t = u_xxx-6*u*u_x']
     b = read_bases()
-    b = ['-1*u*u_xx-u_x**2', 'u_x**2', '-1*(u)', '0.89*(u**3) + 0.45*(u_x**2)']
-    #find_cq(f,b)
-    print(check_trivial(b))
+
 
     

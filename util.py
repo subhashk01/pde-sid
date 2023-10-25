@@ -3,15 +3,52 @@ import numpy as np
 from sympy import symbols, sympify, simplify, lambdify
 import torch
 
-def find_highest_derivative(f_str):
-    # Find all occurrences of 'u_xxx...' in the string
-    matches = re.findall(r'u_x+', f_str)
+def extract_lhs_variables(equations):
+    # Regular expression to match any word ending with _t, regardless of spaces around the equals sign
+    pattern = r'(\w+)_t\s*='
+    variables = []
+
+    for equation in equations:
+        match = re.search(pattern, equation)
+        if match:
+            variables.append(match.group(1))
+    
+    return variables
+
+def extract_variables(equations):
+    # extracts all variables from equations
+    # Regular expression to match any word followed by an underscore
+    pattern = r'(\w+)_'
+    variables = []
+
+    for equation in equations:
+        matches = re.findall(pattern, equation)
+        variables.extend(matches)
+    
+    # Use set to eliminate duplicates, then convert back to list
+    return list(set(variables))
+
+def extract_rhs(equations):
+    rhs_list = []
+
+    for equation in equations:
+        # Split by '=' and get the second part (RHS), then strip to remove spaces
+        rhs = equation.split('=')[1].strip()
+        rhs_list.append(rhs)
+    
+    return rhs_list
+
+def find_highest_derivative(f_str, wrt='u'):
+    # Find all occurrences of '{wrt}_xxx...' in the string using an f-string for the pattern
+    
+    pattern = rf'{wrt}_x+'
+    matches = re.findall(pattern, f_str)
     
     if not matches:
         return 0
     
     # Count the number of 'x' in each match and find the maximum
-    max_x_count = max(len(match) - 2 for match in matches)
+    max_x_count = max(len(match) - len(wrt) - 1 for match in matches)
     
     return max_x_count
 
