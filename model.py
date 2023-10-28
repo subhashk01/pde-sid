@@ -3,12 +3,15 @@ from autograd import grad, jacobian
 from scipy.optimize import minimize
 from calculate_G import create_matrices
 import copy
-from util import read_bases, check_function_integral
-
+from util import read_bases, check_function_integral, extract_lhs_variables
+from contextlib import redirect_stdout
+import io
     
     
 def find_cq(fs, bases, check_trivial_bases = True, check_trivial_solutions = True, seed = 0):
     np.random.seed(seed)
+
+    variables = extract_lhs_variables(fs)
     # load data
     print("#### Loading data ####")
     us = np.load('test_curves.npy')
@@ -16,7 +19,7 @@ def find_cq(fs, bases, check_trivial_bases = True, check_trivial_solutions = Tru
     bases = np.array(bases)
     if check_trivial_bases:
         print('#### Removing Trivial Bases ####')
-        trivial = check_trivial(bases)
+        trivial = check_trivial(bases, variables)
         if np.sum(trivial) != 0:
             print('Removed: ', bases[trivial==1])
             bases = bases[trivial==0]
@@ -31,7 +34,7 @@ def find_cq(fs, bases, check_trivial_bases = True, check_trivial_solutions = Tru
         print('#### Calculating Number of Trivial Conserved Quantities ####')
         for triviality in ['non_sol', 'sol']:
             solutions = threshold_and_format(bases, results[triviality+'_cq_sparse'])
-            trivials = check_trivial(solutions)
+            trivials = check_trivial(solutions, variables)
             if triviality == 'sol':
                 print(f'{np.sum(trivials==1)} Trivial '+triviality)
                 print(f'{np.sum(trivials==0)} Non Trivial '+triviality)
@@ -119,7 +122,7 @@ def sparsify(solutions, tol_dep=1e-4, seed=0, sparse_run=10, sparse_tol=1e-32, m
     return solutions
 
 
-def check_trivial(bases, epsilon = 1e-4):
+def check_trivial(bases, variables, epsilon = 1e-4):
     # returns an array x of size bases that has a 0 if the base is non trivial and 1 if its trivia;
 
     # since we want to know if an individual base/solution is degenerate, not if a combination of them is degenerate
@@ -129,11 +132,12 @@ def check_trivial(bases, epsilon = 1e-4):
 
     values = []
     for b in bases:
-        val = check_function_integral(b, us)
+        val = check_function_integral(b, us, variables)
         values.append(val)
     values = np.transpose(np.array(values))
 
-    trivial_svd = svd_and_sparsify(values, return_non_sol = False, tol_cq = 1e-6)
+    with io.StringIO() as buf, redirect_stdout(buf):
+        trivial_svd = svd_and_sparsify(values, return_non_sol = False, tol_cq = 1e-6)
     trivial_sp = trivial_svd['sol_cq_sparse']
 
     if trivial_sp.shape[1]==0: # no solutions found

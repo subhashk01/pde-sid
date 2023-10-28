@@ -6,4 +6,5 @@ class Config:
     N_g = 5 # number of gaussians to use in the mixture model
     num_derivs = 5 # number of derivatives to take
     num_curves = 200 # number of curves to generate
+    max_num_eqs = 10 # max number of equations our system can handle
 

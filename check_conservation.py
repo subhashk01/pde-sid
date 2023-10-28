@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from calculate_G import find_highest_derivative, calculate_matrix_columns
 from model import find_cq, threshold_and_format
-from util import read_bases, check_function_integral, extract_lhs_variables, extract_rhs
+from util import read_bases, check_function_integral, extract_lhs_variables, extract_rhs, give_equation, calculate_neff
 from configs import Config
 
 plt.rcParams['text.usetex'] = True
@@ -110,8 +110,10 @@ def graph_singular_values(results, fs, us):
     plt.plot(range(len(s)),s, c = 'k', lw = '0.5', label = 'Singular Values')
     plt.axhline(y=1e-6, color='r', linestyle='--', label = 'TOLERANCE')
 
+    n_eff = calculate_neff(results['s_cq_nonorm'])
 
-    plt.title(f'f(x) = {f}\n'+r'Annotated w RMSE of $\frac{dH}{dt} = \int \frac{dh}{dx}f+\frac{dh}{du_x}\frac{df}{dx}...dx$')
+
+    plt.title(f'{fs}\n'+r'Annotated w RMSE of $\frac{dH}{dt} = \int \frac{dh}{dx}f+\frac{dh}{du_x}\frac{df}{dx}...dx$'+f'\nneff = {n_eff:.5f}')
     plt.ylabel('Singular Value')
     plt.xticks(range(len(expressions)), range(1,1+len(expressions)), rotation=0)
     plt.xlabel('CQ Number')
@@ -125,9 +127,12 @@ def graph_singular_values(results, fs, us):
 
 if __name__ == '__main__':
     # read the file basis.txt into a variable named b
-    b = read_bases()
-    f = ['u_t = u_xxx-6*u*u_x']
+    eq = 'kdv'
+    bs = read_bases(eq)
+    fs = give_equation(eq)
+    fs = ['u_t = 1*u_xxx-6*u*u_x']
+    #f = ['u_t = v', 'v_t = -1*u']
     us = np.load('test_curves.npy')
-    results = find_cq(f, b, check_trivial_bases=True, check_trivial_solutions = True)
-    graph_singular_values(results, f, us)
+    results = find_cq(fs, bs, check_trivial_bases=True, check_trivial_solutions = True)
+    graph_singular_values(results, fs, us)
 

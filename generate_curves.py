@@ -52,20 +52,29 @@ def gaussians(plot = True):
     return x_vals, y_vals
 
 
-def generate_us():
+def generate_us(var_num = ''):
     y_vals = []
     for i in range(config.num_curves):
         _, y_val = gaussians(plot = False)
         y_vals.append(y_val)
         if i%5 == 0:
-            print(i)
+            print(var_num,i)
     y_vals = np.array(y_vals)
+    assert y_vals.shape == (config.num_curves, config.num_derivs+1, config.N_p), "y_vals has wrong shape"
+    return y_vals
+
+
+def generate_variables():
+
+    y_vals = []
+    for var_num in range(config.max_num_eqs):
+        y_vals_var = generate_us(var_num = var_num)
+        y_vals.append(y_vals_var)
+    y_vals = np.array(y_vals)
+    assert y_vals.shape == (config.max_num_eqs, config.num_curves, config.num_derivs+1, config.N_p), "y_vals has wrong shape"
     with open('test_curves.npy', 'wb') as f:
         np.save(f, y_vals)
 
 
-
-
-
 if __name__ == '__main__':
-    gaussians()
+    generate_variables()

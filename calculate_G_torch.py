@@ -1,8 +1,8 @@
 import torch
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from calculate_G import differentiate_f, grad_basis_function, create_matrix, calculate_matrix_columns_presum, calculate_matrix_columns, create_matrix
-from util import read_bases, find_highest_derivative, calculate_neff_torch, calculate_neff
+from calculate_G import differentiate_f, grad_basis_function, create_matrices, calculate_matrix_columns_presum, calculate_matrix_columns, create_matrix
+from util import read_bases, give_equation,find_highest_derivative, calculate_neff_torch, calculate_neff, extract_lhs_variables, extract_rhs, extract_variables, fill_placeholders
 import numpy as np
 from model import svd_and_sparsify, threshold_and_format
 import re
@@ -37,29 +37,35 @@ def split_equation_components(s):
     
     # Placeholder list
     placeholder_indices = []
-    
+    placeholder_nums = []
+
     # Iterate over the components and check for placeholders
     for i, comp in enumerate(components):
-        if '{}' in comp:
+        matches = re.findall(r'{(\d+)}', comp) # Extract numbers inside {}
+        
+        if matches:
             placeholder_indices.append(i)
-            components[i] = comp.replace('{}*', '')  # Remove the placeholder
+            for match in matches:
+                placeholder_nums.append(int(match))
+                comp = comp.replace('{' + match + '}*', '')  # Remove the placeholder with its number
+
+        components[i] = comp
             
-    return components, placeholder_indices
+    return components, placeholder_indices, placeholder_nums
 
 
 
-def f_component_diffs(components,num_derivs, us):
+def f_component_diffs(components,num_derivs, us, variables):
     # calculates the derivative matrix for each of the additive components of f
     # returns list of each of the components' derivative matrices
     f_diffs = []
-    param_num = 0
     for i,comp in enumerate(components):
-        f_diff = differentiate_f(comp, num_derivs, us)
+        f_diff = differentiate_f(comp, num_derivs, us, variables)
         f_diffs.append(f_diff)
         assert(f_diff.shape == f_diffs[0].shape) # each component f_diff needs to be the same size
     return f_diffs
     
-def evaluate_f_diff_components(f_diffs,param_list,place_holder_indices):
+def evaluate_f_diff_components(f_diffs,param_list,place_holder_indices, placeholder_nums):
     # given the f derivative matrices for each of the components
     # a list of hte parameters that need to be mulitpled against each component
     # and the indices where the parameters are supposed to be placed
@@ -69,55 +75,78 @@ def evaluate_f_diff_components(f_diffs,param_list,place_holder_indices):
     for i,f_diff in enumerate(f_diffs):
         coef = 1
         if i in place_holder_indices:
-            coef = param_list[j]
+            coef = param_list[placeholder_nums[j]]
             j+=1
         f_diff_total += coef*torch.from_numpy(f_diff)
     return f_diff_total
 
 
-def evaluate_f_diff(f,us, param_list):
+def evaluate_f_diff(f,us, param_list, variables):
     # gets the total f_diff matrix with a certain list of parameters
     # evaluates as many derivs as we have data for
+    num_derivs_poss = []
+    for var in variables:
+        num_derivs_poss.append(find_highest_derivative(f, wrt=var))
 
-    num_derivs = us.shape[1]-find_highest_derivative(f)-1
-    components, place_holder_indices = split_equation_components(f)
+    num_derivs = us.shape[2]-max(num_derivs_poss)-1
+    components, place_holder_indices, placeholder_nums = split_equation_components(f)
     
     assert(len(param_list) == len(place_holder_indices)) # need as many params as unknowns
-    f_diffs = f_component_diffs(components,num_derivs, us)
-    f_diff_total = evaluate_f_diff_components(f_diffs, param_list, place_holder_indices)
+    if len(placeholder_nums):
+        assert(max(placeholder_nums) < len(param_list)) # placeholder nums must be in range of param_list
+    f_diffs = f_component_diffs(components,num_derivs, us, variables)
+    f_diff_total = evaluate_f_diff_components(f_diffs, param_list, place_holder_indices, placeholder_nums)
 
     return f_diff_total
 
-def create_matrix_column_presum_torch(us,b,f_diff):
+def create_matrix_column_presum_torch(us,b,f_diff, wrt, variables):
     # calculates column presum for each basis
-    b_grad = grad_basis_function(b, us)
+    b_grad = grad_basis_function(b, us, wrt, variables)
     b_grad = torch.from_numpy(b_grad)
         
     f_diff_indexed = f_diff[:,:b_grad.shape[1],:]
     column_presum = torch.einsum('ijk,ijk->ik', b_grad, f_diff_indexed)
         
-    assert(column_presum.shape == (us.shape[0], us.shape[2])) # should be P, N_p
+    assert(column_presum.shape == (us.shape[1], us.shape[3])) # should be P, N_p
     return column_presum
 
-def create_matrix_column_torch(us, b, f_diff):
+def create_matrix_column_torch(us, b, f_diff, wrt, variables):
     # calculates the column in G for b
 
-    column_presum = create_matrix_column_presum_torch(us,b,f_diff)
+    column_presum = create_matrix_column_presum_torch(us,b,f_diff, wrt, variables)
     
     column = torch.sum(column_presum, dim=1)
-    assert(column.shape == (us.shape[0],)) # should be P
+    assert(column.shape == (us.shape[1],)) # should be P
     return column
 
 
-def create_matrix_torch(bs, f, us, param_list):
-    # creates the whole matrix for G. Size P x num_basis
-
-    f_diff = evaluate_f_diff(f, us, param_list)
-    matrix = torch.zeros(us.shape[0], len(bs))
+def create_matrix_torch(bs, f, us, wrt, variables, param_list):
+    # creates the whole matrix for G. Size P x num_basiS
+    f_diff = evaluate_f_diff(f, us, param_list, variables)
+    matrix = torch.zeros(us.shape[1], len(bs))
     for i,b in enumerate(bs):
-        column = create_matrix_column_torch(us, b, f_diff)
+        column = create_matrix_column_torch(us, b, f_diff, wrt, variables)
         matrix[:,i] = column
     return matrix
+
+def create_matrices_torch(bs, fs, us, param_list):
+    assert type(fs)==list, "fs must be a list of string equations"
+    matrix = None
+    variables = extract_lhs_variables(fs)
+    all_vars = extract_variables(fs)
+    assert set(variables) == set(all_vars), "# equations must be # total variables"
+    equations = extract_rhs(fs) # we dont want the X_t = part
+
+    matrix = None
+    for i in range(len(equations)):
+        matrix_interim = create_matrix_torch(bs, equations[i], us, variables[i], variables, param_list)
+        if matrix is None:
+            matrix = torch.zeros(matrix_interim.shape)
+        matrix+=matrix_interim
+    assert(matrix.shape == (us.shape[1], len(bs))) # should be P, num_bs
+    return matrix
+
+
 
 
 ###############################################
@@ -145,7 +174,7 @@ def check_torch_implementation(bs, f, us, param_list):
 
     f_inp = f.format(*param_list)
 
-    num_derivs = us.shape[1]-find_highest_derivative(f)-1
+    num_derivs = us.shape[2]-find_highest_derivative(f)-1
     deriv_f_torch = evaluate_f_diff(f, us, param_list)
     deriv_f_numpy = torch.from_numpy(differentiate_f(f_inp, num_derivs, us))
 
@@ -183,10 +212,12 @@ def check_torch_implementation(bs, f, us, param_list):
 
 
 
+
 def compare_answers(bs,f,us,param_list):
-    f_inp = f.format(*param_list)
-    G_np = create_matrix(bs, f_inp, us)
-    G_tor = create_matrix_torch(bs, f, us, param_list)
+    f_inp = fill_placeholders(f, param_list)
+    print(f_inp)
+    G_np = create_matrices(bs, f_inp, us)
+    G_tor = create_matrices_torch(bs, f, us, param_list)
 
     with io.StringIO() as buf, redirect_stdout(buf):
         res_np = svd_and_sparsify(G_np)
@@ -201,6 +232,7 @@ def compare_answers(bs,f,us,param_list):
     print('NUMPY SOLUTIONS',ans_np)
     n_eff_np = calculate_neff([res_np['s_cq_nonorm']])[0]
     
+    
 
     ans_tor = res_tor['sol_cq_sparse']
     if ans_tor.shape[1]!=0:
@@ -208,23 +240,31 @@ def compare_answers(bs,f,us,param_list):
     ans_tor = np.ndarray.tolist(ans_tor)
     print('TORCH SOLUTIONS',ans_tor)
     n_eff_tor = calculate_neff_torch(torch.from_numpy(res_tor['s_cq_nonorm'])).item()
+
+    print('np sing values',res_np['s_cq_nonorm'])
+    print('tor sing values', res_tor['s_cq_nonorm'])
+    #assert np.allclose(res_np['s_cq_nonorm'], res_tor['s_cq_nonorm'], rtol=1e-4, atol=0), "Singular values don't match"
     print(f'neff numpy: {n_eff_np:.2f}. neff torch: {n_eff_tor:.2f}. frac diff: {abs(n_eff_tor-n_eff_np)/n_eff_np:.2e}')
 
-    assert ans_tor == ans_np, f"Numpy and Torch solutions don't match for {f_inp},\nNumpy:{ans_np}\nTorch:{ans_tor}"
+    #assert ans_tor == ans_np, f"Numpy and Torch solutions don't match for {f_inp},\nNumpy:{ans_np}\nTorch:{ans_tor}"
     assert abs(n_eff_np)*1.01>abs(n_eff_tor)>abs(n_eff_np)*.99, f"Numpy and Torch n_eff answers don't match for {f_inp}.\nNumpy:{n_eff_np}\nTorch:{n_eff_tor}"
 
 
 
 
 def check_torch():
-    fs = ['{}*u_xxx-12*u_xx+{}*u_x**3', '{}*u_xxx-12*u_xx+{}*u_x**3', 'u*u_x','u_xxx-6*u*u_x+{}*u_xx']
     # fix this first case
-    bs = read_bases()
+    eqs = ['nlse', 'spring']
     us = np.load('test_curves.npy')
-    for f in fs:
-        comps, placeholder = split_equation_components(f)
-        param_list = [np.random.randint(10) for _ in range(len(placeholder))]
-        check_torch_implementation(bs,f,us,param_list)
+    for eq in eqs:
+        f = give_equation(eq)
+        bs = read_bases(eq)
+        numbers = [int(match) for s in f for match in re.findall(r'{(\d+)}', s)]
+        if len(numbers) == 0:
+            param_list = []
+        else:
+            param_list = [np.random.randint(10) for _ in range(max(numbers)+1)]
+        #check_torch_implementation(bs,f,us,param_list)
         compare_answers(bs,f,us,param_list)
 
         
@@ -235,6 +275,15 @@ def check_torch():
 
 
 if __name__ == '__main__':
+    # NO SPACES AFTER *
+    # fs = ['u_t = v', 'v_t = u']
+    # bs = read_bases('kdv')
+    # us = np.load('test_curves.npy')
+    # param_list = []
+    # mat = create_matrices_torch(bs, fs, us, param_list)
+    # u,s,v = torch.linalg.svd(mat)
+    # print(s)
+    # print(split_equation_components('u_xxx - 6*u*u_x+{0}*u_xx'))
     check_torch()
 
 

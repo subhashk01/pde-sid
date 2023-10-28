@@ -1,12 +1,14 @@
 import numpy as np
 from model import find_cq
 from util import read_bases
+from calculate_G import create_matrices
 from contextlib import redirect_stdout
 import io
 import matplotlib.pyplot as plt
 import pandas as pd
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from util import calculate_neff
+from tqdm import tqdm
 
 
 def evaluate_k(f,k):
@@ -36,6 +38,94 @@ def sweep_k(f, title):
         k+=step
     np.array(sings)
     np.save(f'{title}_sings.npy', sings)
+
+
+def sweep_kdv(A = 0, B = 10):
+    thetas = np.linspace(0, np.pi, 100)
+    phis = np.linspace(0, np.pi, 100)
+    graph_space = []
+
+    total_iterations = len(thetas) * len(phis)
+    pbar = tqdm(total=total_iterations, desc="Processing", leave=True)
+
+    for theta in thetas:
+        for phi in phis:
+            coef1 = np.cos(theta)*np.sin(phi)
+            coef2 = np.sin(theta)*np.sin(phi)
+            coef3 = np.cos(phi)
+            f = f'u_t = {coef1}*u_xxx+{coef2}*u*u_x+{coef3}*u_xx'
+            fs = [f]
+            bs = read_bases('kdv')
+            us = np.load('test_curves.npy')
+            G = create_matrices(bs, fs, us)
+            _,s,_ = np.linalg.svd(G)
+            n_eff = calculate_neff(s, A = A, B = B)
+            graph_space.append([theta, phi, n_eff])
+
+            # Update the progress bar
+            pbar.set_description(f"f: {f}, n_eff: {n_eff:.5f}")
+            pbar.update(1)
+
+    # Close the progress bar
+    pbar.close()
+    graph_space = np.array(graph_space)
+    np.save(f'kdv_coef_space3d.npy', graph_space)
+
+def plot_kdv_coef_space():
+    graph_space = np.load('kdv_coef_space.npy')
+    diff = 7
+    
+    # Calculate local maxima
+    y_values = graph_space[:,1] - diff
+    local_maxima = (y_values[:-2] < y_values[1:-1]) & (y_values[1:-1] > y_values[2:])
+    x_local_maxima = graph_space[1:-1, 0][local_maxima]
+    y_local_maxima = y_values[1:-1][local_maxima]
+    
+    plt.plot(graph_space[:,0], y_values, color='b')
+    plt.scatter(x_local_maxima, y_local_maxima, color='r', label='Local Maxima\n'+str(x_local_maxima))  # plot local maxima
+    plt.xlabel(r'$\theta$')
+    plt.ylabel(r'$n_{eff}$'+f'-{diff}')
+    title = 'u_t = cos(theta)*u_xxx+sin(theta)*u*u_x\nA = 0, B = 10\n'
+    title += r'$n_{eff}$ as a function of $\theta$ for KdV'
+    plt.title(title)
+    
+    # Set xticks every pi/4
+    ticks = np.arange(0, 2*np.pi, np.pi/4)
+    plt.xticks(ticks, [r'$0$', r'$\frac{\pi}{4}$', r'$\frac{\pi}{2}$', r'$\frac{3\pi}{4}$', 
+                       r'$\pi$', r'$\frac{5\pi}{4}$', r'$\frac{3\pi}{2}$', r'$\frac{7\pi}{4}$'])
+    
+    plt.axhline(y=0, color='k')
+    plt.axvline(x=0, color='k')
+
+    plt.legend()
+    plt.show()
+
+def plot_kdv3d_coef_space():
+    graph_space = np.load('kdv_coef_space3d.npy')
+    theta, phi, n_eff = graph_space[:,0], graph_space[:,1], graph_space[:,2]
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    scatter = ax.scatter(theta, phi, c=n_eff, cmap='viridis', s=50)
+
+    # Use Greek letters for axis labels
+    ax.set_xlabel(r'$\theta$')
+    ax.set_ylabel(r'$\phi$')
+    
+    # Set x and y ticks every pi/4
+    ticks = np.arange(0, np.pi+0.1, np.pi/4) 
+    tick_labels = [r'$0$', r'$\frac{\pi}{4}$', r'$\frac{\pi}{2}$', r'$\frac{3\pi}{4}$', r'$\pi$']
+    ax.set_xticks(ticks)
+    ax.set_yticks(ticks)
+    ax.set_xticklabels(tick_labels)
+    ax.set_yticklabels(tick_labels)
+
+    ax.set_title(r'$u_t = \cos(\theta)\sin(\phi)u_{xxx}+\sin(\theta)\sin(\phi)uu_x+\cos(\phi)u_{xx}$' + '\nA = 0, B = 10\n' + r'$n_{eff}$ as a function of $\theta$ and $\phi$ for KdV')
+
+    # Add a colorbar to the plot
+    cbar = fig.colorbar(scatter, ax=ax, orientation='vertical')
+    cbar.set_label('n_eff')
+
+    plt.show()
 
 
 def plot_A_B(f, title, A = 2, B = 1000):
@@ -117,9 +207,12 @@ def plot_small_k(f, A = 2, B = 1000):
 
 
 if __name__ == '__main__':
-    f, title = 'u_xxx-6*u*u_x+{k}*u_xx', 'kdv'
-    f, title = 'u_x*u+{k}*u_xx', 'burgers'
-    plot_small_k(f,5, 1000)
+    #f, title = 'u_xxx-6*u*u_x+{k}*u_xx', 'kdv'
+    #f, title = 'u_x*u+{k}*u_xx', 'burgers'
+    #plot_small_k(f,5, 1000)
+    #sweep_kdv()
+    plot_kdv3d_coef_space()
+    #plot_kdv_coef_space()
 
 
 

@@ -20,6 +20,9 @@ def differentiate_f(f_str, num_derivs, us, variables):
 
     derivatives = {}
     deriv_list = []
+
+    derivs_data_num = us.shape[2]-1 # how many derivatives' data we actualy have
+
     for variable in variables:
         # define each variable in f as a function of x
         var = Function(variable)(x)
@@ -28,7 +31,6 @@ def differentiate_f(f_str, num_derivs, us, variables):
         derivatives[variable] = var
         highest_der = find_highest_derivative(f_str, wrt = variable)
 
-        derivs_data_num = us.shape[1]-1 # how many derivatives' data we actualy have. EDIT THIS FOR EACH RESPECTIVE US
         assert(highest_der + num_derivs <= derivs_data_num) # need at least as much data as derivs
 
         deriv_list.append(var)
@@ -41,7 +43,15 @@ def differentiate_f(f_str, num_derivs, us, variables):
     # Convert string to SymPy expression
     past_f = None
     f_deriv = []
-    us_repl = np.tile(us, (1,len(variables),1)) # replicates us for each variable. short term fix. NEED TO GENERATE MORE DATA
+
+    # Extract the shape of the array
+    a, b, c, d = us.shape
+
+    # Reshape and transpose
+    us_repl = us.transpose(1, 0, 2, 3).reshape(b, a*c, d)
+    us_repl = us_repl[:,:len(variables)*c,:]
+
+
 
     for _ in range(num_derivs+1):
         if past_f is None: # first iteration. want to generate f as sympy expression
@@ -56,7 +66,7 @@ def differentiate_f(f_str, num_derivs, us, variables):
         for p in range(us_repl.shape[0]): # might be a faster way to do this. evaluates derivativ
             func_val = f_func(us_repl[p])
             if type(func_val) == int and func_val == 0: # only happens when 0 is the coefficient
-                func_val = [0]*us.shape[2]
+                func_val = [0]*us_repl.shape[2]
             f_vals.append(func_val) # gives all N_p values for each of the derivatives in u
         f_deriv.append(f_vals)
         past_f = f
@@ -64,7 +74,7 @@ def differentiate_f(f_str, num_derivs, us, variables):
     f_deriv = np.array(f_deriv)
 
     f_deriv = np.transpose(f_deriv, (1,0,2))
-    assert(f_deriv.shape == (us.shape[0], num_derivs + 1, us.shape[2])) # should be P, num_derivs, N_p
+    assert(f_deriv.shape == (us_repl.shape[0], num_derivs + 1, us_repl.shape[2])) # should be P, num_derivs, N_p
     
     return f_deriv # returns (P, num_der, N_p)
 
@@ -79,12 +89,12 @@ def grad_basis_function(b, us, wrt, variables):
     terms = []
     new_us = None # need to add all relevant values of u in here
 
-    for variable in variables:
+    for i,variable in enumerate(variables):
         der = find_highest_derivative(b, wrt=variable)  # how many derivatives we need to take
-        der_data = us.shape[1]-1  # how many derivatives we actually have
+        der_data = us.shape[2]-1  # how many derivatives we actually have
         assert(der <= der_data)  # need as much data as derivs required
         
-        current_us_slice = us[:, :der+1, :]
+        current_us_slice = us[i,:, :der+1, :]
         
         # Initialize new_us if it's the first iteration or concatenate to existing new_us
         if new_us is None:
@@ -110,10 +120,10 @@ def grad_basis_function(b, us, wrt, variables):
         deriv_func = diff(b_func,deriv)
         deriv_func = lambdify([derivatives], deriv_func)
         b_vals = []
-        for p in range(us.shape[0]):
+        for p in range(new_us.shape[0]):
             val = deriv_func(new_us[p]) # only takes as many derivatives as we require
             if type(val)!=list: # if its always a constant it will come out as an int
-                val = val*np.ones((us.shape[2])) # N_p values
+                val = val*np.ones((new_us.shape[2])) # N_p values
             b_vals.append(val) # P x N_p
 
         b_deriv.append(b_vals) # for each deriv
@@ -123,7 +133,7 @@ def grad_basis_function(b, us, wrt, variables):
 
     wrt_der = find_highest_derivative(b, wrt=wrt)
 
-    assert(b_deriv.shape == (us.shape[0], wrt_der + 1, us.shape[2])) # should be num_derivs, P, N_p
+    assert(b_deriv.shape == (new_us.shape[0], wrt_der + 1, new_us.shape[2])) # should be num_derivs, P, N_p
     return b_deriv  # size P, num_derivs, N_p
 
 
@@ -133,7 +143,7 @@ def calculate_matrix_columns_presum(b,f,us, wrt, variables):
     bs = grad_basis_function(b, us, wrt, variables)
     assert(bs.shape == fs.shape) # should be P, num_derivs, N_p
     column_presum = np.einsum('ijk,ijk->ik', bs, fs) # should be P, N_p
-    assert(column_presum.shape == (us.shape[0], us.shape[2])) # should be P, N_p
+    assert(column_presum.shape == (us.shape[1], us.shape[3])) # should be P, N_p
     return column_presum
 
 def calculate_matrix_columns(b, f, us, wrt, variables):
@@ -141,7 +151,7 @@ def calculate_matrix_columns(b, f, us, wrt, variables):
 
     column_presum = calculate_matrix_columns_presum(b,f,us, wrt, variables)
     column = np.sum(column_presum, axis=1) # sum across N_p
-    assert(column.shape == (us.shape[0],)) # should be P
+    assert(column.shape == (us.shape[1],)) # should be P
     return column
 
 def create_matrix(bs, f, us, wrt, variables):
@@ -152,7 +162,7 @@ def create_matrix(bs, f, us, wrt, variables):
         columns.append(column)
     columns = np.array(columns)
     columns = np.transpose(columns)
-    assert(columns.shape == (us.shape[0], len(bs))) # should be P, num_bs
+    assert(columns.shape == (us.shape[1], len(bs))) # should be P, num_bs
     return columns
 
 def create_matrices(bs, fs, us):
@@ -167,15 +177,18 @@ def create_matrices(bs, fs, us):
         if matrix is None:
             matrix = np.zeros(matrix_f.shape)
         matrix+=matrix_f
-    assert(matrix.shape == (us.shape[0], len(bs))) # should be P, num_bs
+    assert(matrix.shape == (us.shape[1], len(bs))) # should be P, num_bs
     return matrix
 
 if __name__ ==  '__main__':
-    fs = ['u_t = u_xx']
+    
+    fs = ['u_t=u_xx']
     bs = read_bases()
     us = np.load('test_curves.npy')
+    create_matrices(bs,fs,us)
 
-    res = create_matrices(bs,fs,us)
+
+    #res = create_matrices(bs,fs,us)
     
     # us = np.load('test_curves.npy')
     # grad_basis_function(b, us, wrt = 'u', variables = variables)
