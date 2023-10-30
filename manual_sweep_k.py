@@ -42,7 +42,8 @@ def sweep_k(f, title):
 
 def sweep_kdv(A = 0, B = 10):
     thetas = np.linspace(0, np.pi, 100)
-    phis = np.linspace(0, np.pi, 100)
+    #phis = np.linspace(0, np.pi, 100)
+    phis = np.array([np.pi/2])
     graph_space = []
 
     total_iterations = len(thetas) * len(phis)
@@ -69,7 +70,7 @@ def sweep_kdv(A = 0, B = 10):
     # Close the progress bar
     pbar.close()
     graph_space = np.array(graph_space)
-    np.save(f'kdv_coef_space3d.npy', graph_space)
+    np.save(f'kdv_coef_space3d_A{A}B{B}.npy', graph_space)
 
 def plot_kdv_coef_space():
     graph_space = np.load('kdv_coef_space.npy')
@@ -210,8 +211,8 @@ if __name__ == '__main__':
     #f, title = 'u_xxx-6*u*u_x+{k}*u_xx', 'kdv'
     #f, title = 'u_x*u+{k}*u_xx', 'burgers'
     #plot_small_k(f,5, 1000)
-    #sweep_kdv()
-    plot_kdv3d_coef_space()
+    sweep_kdv(A = 0, B = 1)
+    #plot_kdv3d_coef_space()
     #plot_kdv_coef_space()
 
 

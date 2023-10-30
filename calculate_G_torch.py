@@ -91,7 +91,7 @@ def evaluate_f_diff(f,us, param_list, variables):
     num_derivs = us.shape[2]-max(num_derivs_poss)-1
     components, place_holder_indices, placeholder_nums = split_equation_components(f)
     
-    assert(len(param_list) == len(place_holder_indices)) # need as many params as unknowns
+    assert(len(param_list) >= len(place_holder_indices)) # need at least as many params as unknowns
     if len(placeholder_nums):
         assert(max(placeholder_nums) < len(param_list)) # placeholder nums must be in range of param_list
     f_diffs = f_component_diffs(components,num_derivs, us, variables)
@@ -213,7 +213,7 @@ def check_torch_implementation(bs, f, us, param_list):
 
 
 
-def compare_answers(bs,f,us,param_list):
+def compare_answers(bs,f,us,param_list, A =0, B = 1):
     f_inp = fill_placeholders(f, param_list)
     print(f_inp)
     G_np = create_matrices(bs, f_inp, us)
@@ -230,7 +230,7 @@ def compare_answers(bs,f,us,param_list):
         ans_np = np.array(threshold_and_format(bs,ans_np))
     ans_np = np.ndarray.tolist(ans_np)
     print('NUMPY SOLUTIONS',ans_np)
-    n_eff_np = calculate_neff([res_np['s_cq_nonorm']])[0]
+    n_eff_np = calculate_neff(res_np['s_cq_nonorm'], A = A, B = B)
     
     
 
@@ -239,7 +239,7 @@ def compare_answers(bs,f,us,param_list):
         ans_tor = np.array(threshold_and_format(bs,ans_tor))
     ans_tor = np.ndarray.tolist(ans_tor)
     print('TORCH SOLUTIONS',ans_tor)
-    n_eff_tor = calculate_neff_torch(torch.from_numpy(res_tor['s_cq_nonorm'])).item()
+    n_eff_tor = calculate_neff_torch(torch.from_numpy(res_tor['s_cq_nonorm']), A = A, B = B).item()
 
     print('np sing values',res_np['s_cq_nonorm'])
     print('tor sing values', res_tor['s_cq_nonorm'])
@@ -252,20 +252,21 @@ def compare_answers(bs,f,us,param_list):
 
 
 
-def check_torch():
+def check_torch(A = 0, B = 1000):
     # fix this first case
-    eqs = ['nlse', 'spring']
+    #eqs = ['nlse', 'spring']
+    fs = [['u_t = .94010*u_xxx-.34089*u*u_x']]
     us = np.load('test_curves.npy')
-    for eq in eqs:
-        f = give_equation(eq)
-        bs = read_bases(eq)
+    for f in fs:
+        #f = give_equation(eq)
+        bs = read_bases('kdv')
         numbers = [int(match) for s in f for match in re.findall(r'{(\d+)}', s)]
         if len(numbers) == 0:
             param_list = []
         else:
             param_list = [np.random.randint(10) for _ in range(max(numbers)+1)]
         #check_torch_implementation(bs,f,us,param_list)
-        compare_answers(bs,f,us,param_list)
+        compare_answers(bs,f,us,param_list, A = A, B = B)
 
         
         
@@ -284,7 +285,20 @@ if __name__ == '__main__':
     # u,s,v = torch.linalg.svd(mat)
     # print(s)
     # print(split_equation_components('u_xxx - 6*u*u_x+{0}*u_xx'))
-    check_torch()
+    # fs = ['u_t = .94010*u_xxx-.34089*u*u_x']
+    # bs = read_bases('kdv')
+    # us = np.load('test_curves.npy')
+    # param_list = []
+    # G_tor = create_matrices_torch(bs, fs, us, param_list)
+    # s = torch.linalg.svd(G_tor)[1]
+    # print(calculate_neff_torch(s, A = 0, B=1))
+
+    # G_np = create_matrices(bs, fs, us)
+    # s_np = np.linalg.svd(G_np)[1]
+    # print(calculate_neff(s_np, A = 0, B = 1))
+    #print(s)
+    #print(s_np)
+    check_torch(A = 0, B=0)
 
 
 

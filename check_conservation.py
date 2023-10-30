@@ -74,7 +74,7 @@ def test_basis_integral(basis,f,us):
 
 
 def graph_singular_values(results, fs, us):
-    s = results['s_cq']
+    s = results['s_cq_nonorm']
     s_cq = results['sol_cq_sparse']
     non_s_cq = results['non_sol_cq_sparse']
     bs = results['bases']
@@ -108,9 +108,10 @@ def graph_singular_values(results, fs, us):
     rest_y = s[len(expressions):]
     plt.scatter(rest_x, rest_y)
     plt.plot(range(len(s)),s, c = 'k', lw = '0.5', label = 'Singular Values')
-    plt.axhline(y=1e-6, color='r', linestyle='--', label = 'TOLERANCE')
+    A, B = 0,1
+    plt.axhline(y=10**A, color='r', linestyle='--', label = f'TOLERANCE (A = {A}, B = {B})')
 
-    n_eff = calculate_neff(results['s_cq_nonorm'])
+    n_eff = calculate_neff(results['s_cq_nonorm'], A = A, B = B)
 
 
     plt.title(f'{fs}\n'+r'Annotated w RMSE of $\frac{dH}{dt} = \int \frac{dh}{dx}f+\frac{dh}{du_x}\frac{df}{dx}...dx$'+f'\nneff = {n_eff:.5f}')
@@ -130,9 +131,13 @@ if __name__ == '__main__':
     eq = 'kdv'
     bs = read_bases(eq)
     fs = give_equation(eq)
-    fs = ['u_t = 1*u_xxx-6*u*u_x']
-    #f = ['u_t = v', 'v_t = -1*u']
     us = np.load('test_curves.npy')
-    results = find_cq(fs, bs, check_trivial_bases=True, check_trivial_solutions = True)
-    graph_singular_values(results, fs, us)
+    for _ in range(5):
+        a = np.random.uniform(-1, 1)
+        b = np.sqrt(1-a**2)
+        fs = [f'u_t = {a}*u_xxx+{b}*u*u_x']
+        #f = ['u_t = v', 'v_t = -1*u']
+        
+        results = find_cq(fs, bs, check_trivial_bases=False, check_trivial_solutions = False)
+        graph_singular_values(results, fs, us)
 
