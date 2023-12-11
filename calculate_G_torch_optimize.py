@@ -64,6 +64,18 @@ def generate_fdiffs_bgrads(equations, bs, us, param_list):
     fs = extract_rhs(equations)
     variables = extract_lhs_variables(equations)
 
+    b_high_der = 0
+    rhs_high_der = 0
+    for f in fs:
+        for wrt in variables:
+            rhs_high_der = max(rhs_high_der, find_highest_derivative(f, wrt))
+    for b in bs:
+        for wrt in variables:
+            b_high_der = max(b_high_der, find_highest_derivative(b, wrt))
+
+    highest_der = b_high_der+rhs_high_der
+    us = us[:,:,:highest_der+1,:]
+
     f_diffs_dict = {}
 
     for f in fs:

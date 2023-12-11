@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from calculate_G import differentiate_f, grad_basis_function, create_matrices, calculate_matrix_columns_presum, calculate_matrix_columns, create_matrix
-from util import read_bases, give_equation,find_highest_derivative, calculate_neff_torch, calculate_neff, extract_lhs_variables, extract_rhs, extract_variables, fill_placeholders
+from util import read_bases, give_equation,find_highest_derivative, calculate_neff_torch, calculate_neff, extract_lhs_variables, extract_rhs, extract_variables, fill_placeholders, split_equation_components
 import numpy as np
 from model import svd_and_sparsify, threshold_and_format
 import re
@@ -13,45 +13,6 @@ torch.set_default_dtype(torch.float64)
 
 
 
-def split_equation_components(s):
-    # Split the string by addition or subtraction. 
-    # The minus sign will stay with the component after it.
-
-    # doesn't work great w/ f strings
-    # e.g. f'0*u_x+{coef}*u_xx' might not work (brackets probably confuse it)
-    components = [x.strip() for x in re.split('(\+|\-)', s) if x.strip()]
-    
-    # If a component is just '+' or '-', then merge it with the next component
-    i = 0
-    while i < len(components) - 1:
-        if components[i] in ['+', '-']:
-            # Merge with the next component
-            components[i] += components[i+1]
-            # Remove the next component
-            components.pop(i+1)
-        else:
-            i += 1
-    
-    # Remove '+' signs from the start of the components
-    components = [comp if not comp.startswith('+') else comp[1:] for comp in components]
-    
-    # Placeholder list
-    placeholder_indices = []
-    placeholder_nums = []
-
-    # Iterate over the components and check for placeholders
-    for i, comp in enumerate(components):
-        matches = re.findall(r'{(\d+)}', comp) # Extract numbers inside {}
-        
-        if matches:
-            placeholder_indices.append(i)
-            for match in matches:
-                placeholder_nums.append(int(match))
-                comp = comp.replace('{' + match + '}*', '')  # Remove the placeholder with its number
-
-        components[i] = comp
-            
-    return components, placeholder_indices, placeholder_nums
 
 
 
@@ -298,7 +259,10 @@ if __name__ == '__main__':
     # print(calculate_neff(s_np, A = 0, B = 1))
     #print(s)
     #print(s_np)
-    check_torch(A = 0, B=0)
+    #check_torch(A = 0, B=0)
+    s = '{0}*y-2*x**2-{1}*x'
+    x = split_equation_components(s)
+    print(x)
 
 
 

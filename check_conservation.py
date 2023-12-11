@@ -73,7 +73,7 @@ def test_basis_integral(basis,f,us):
 
 
 
-def graph_singular_values(results, fs, us):
+def graph_singular_values(results, fs, us, save = False):
     s = results['s_cq_nonorm']
     s_cq = results['sol_cq_sparse']
     non_s_cq = results['non_sol_cq_sparse']
@@ -87,23 +87,39 @@ def graph_singular_values(results, fs, us):
     expressions = threshold_and_format(bs, concat)
     rmses = []
     
-    plt.figure(figsize = (8,6))
-    trivials = None
-    if 'trivial_non_sol' in results.keys():
-        trivials = np.concatenate((results['trivial_sol'], results['trivial_non_sol']))
+    plt.figure(figsize = (12,8))
+    
 
     for i, e in enumerate(expressions):
         ev = evaluate_basis_integral(e, rhs, us, variables)
         rmse = np.sqrt(np.mean(ev**2))
         rmses.append(rmse)
-        if trivials is not None and trivials[i] == 1:
-            plt.scatter(i, s[i], label = f'TRIVIAL CQ{i+1}: {e}', c = 'k')
-        else:
-            plt.scatter(i, s[i], label = f'CQ{i+1}: {e}')
+        plt.scatter(i, s[i], label = f'CQ{i+1}: {e}')
 
     for i, e in enumerate(expressions):
         plt.annotate(f'{rmses[i]:.2e}', (i, s[i]))  # Adds RMSE text to each point
 
+
+    if 'trivial_sol' in results.keys():
+        trivials = results['trivial_sol']
+        CQ_list = [f'CQ{i+1}' for i in range(len(s_cq))]
+        trivial_CQs = threshold_and_format(CQ_list, trivials, precision = 2)
+        num_trivial = len(trivial_CQs)
+        trivial_CQ_str = f'{num_trivial} TRIVIAL CQs:'
+        for i, e in enumerate(trivial_CQs):
+            trivial_CQ_str += f'\n{e}'
+    
+        CQ_str = f'{len(s_cq) - num_trivial} NON-TRIVIAL CQs\n{trivial_CQ_str}'
+        # these are matplotlib.patch.Patch properties
+    else:
+        CQ_str = f'{len(s_cq)} CQs'
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+    # place a text box in upper left in axes coords
+    plt.text(0.01, max(s), CQ_str,
+            verticalalignment='top', bbox=props)
+
+        
     rest_x = range(len(expressions), len(s))
     rest_y = s[len(expressions):]
     plt.scatter(rest_x, rest_y)
@@ -120,7 +136,10 @@ def graph_singular_values(results, fs, us):
     plt.xlabel('CQ Number')
     plt.yscale('log')
     plt.legend()
+    if save:
+        plt.savefig(f'figures/{save}')
     plt.show()
+    
 
 
 
@@ -130,14 +149,18 @@ if __name__ == '__main__':
     # read the file basis.txt into a variable named b
     eq = 'kdv'
     bs = read_bases(eq)
-    fs = give_equation(eq)
-    us = np.load('test_curves.npy')
-    for _ in range(5):
-        a = np.random.uniform(-1, 1)
-        b = np.sqrt(1-a**2)
-        fs = [f'u_t = {a}*u_xxx+{b}*u*u_x']
-        #f = ['u_t = v', 'v_t = -1*u']
-        
-        results = find_cq(fs, bs, check_trivial_bases=False, check_trivial_solutions = False)
-        graph_singular_values(results, fs, us)
+    #fs = ['u_t = u_xxx-6*u*u_x']
+    #fs = give_equation(eq)
+    #fs = ['u_t = u_xxx']
+    #fs = ['u_t = 3*u_x**2*u_xxx + 1*u_x**3 + 3*u_xxx**2*u_x + 1*u_xxx**3']
+    #fs = ['u_t = u_x**3+u_xxx**3+3*u_x*u_xxx**2+3*u_x**2*u_xxx']
+    fs = ['u_t = u_x**3+u_xxxx**2']
+    # fs = ['x_t = x*y-x*z', 
+    #       'y_t = y*z-y*x',
+    #       'z_t = z*x-z*y']
+    #fs = ['x_t = x-x*y', 'y_t =x*y-y']
+    #fs = give_equation(eq)
+    us = np.load('test_poscurves.npy')
+    results = find_cq(fs, bs, check_trivial_bases=True, check_trivial_solutions = True)
+    graph_singular_values(results, fs, us, save = f'newpde_a0.png')
 

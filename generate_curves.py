@@ -8,7 +8,7 @@ from util import read_bases
 config = Config()
 
 
-def gaussians(plot = True):
+def gaussians(plot = True, pos = False):
     # generates u using a gaussian mixture model. returns array of form [1+num_derivs, N_p]
 
     # N_g = number of gaussians in our mixture model
@@ -17,10 +17,14 @@ def gaussians(plot = True):
 
     x_vals = np.linspace(config.x_min, config.x_max, config.N_p)
     y_vals = np.zeros((config.num_derivs+1, config.N_p))
+
     for _ in range(config.N_g):
         mu_val = np.random.uniform(-3, 3)
         sigma_val = 1.5
-        A = np.random.uniform(-5, 5)
+        if pos:
+            A = np.random.uniform(1, 5)
+        else:
+            A = np.random.uniform(-5, 5)
 
         x, mu, sigma= symbols('x mu sigma')
         # Define Gaussian function
@@ -49,32 +53,50 @@ def gaussians(plot = True):
         plt.legend()
         plt.show()
 
+    if pos:
+        assert np.all(y_vals[0]>=0), f"y_vals has negative values when pos is {pos}"
     return x_vals, y_vals
 
 
-def generate_us(var_num = ''):
+
+def generate_us(var_num = '', pos = False):
     y_vals = []
     for i in range(config.num_curves):
-        _, y_val = gaussians(plot = False)
+        _, y_val = gaussians(plot = False, pos = pos)
         y_vals.append(y_val)
         if i%5 == 0:
             print(var_num,i)
     y_vals = np.array(y_vals)
     assert y_vals.shape == (config.num_curves, config.num_derivs+1, config.N_p), "y_vals has wrong shape"
+    if pos:
+        assert np.all(y_vals[:,0,:] >= 0), f"y_vals has negative values when pos is {pos}"
     return y_vals
 
 
-def generate_variables():
+def generate_variables(pos = False):
 
     y_vals = []
     for var_num in range(config.max_num_eqs):
-        y_vals_var = generate_us(var_num = var_num)
+        y_vals_var = generate_us(var_num = var_num, pos = pos)
         y_vals.append(y_vals_var)
     y_vals = np.array(y_vals)
     assert y_vals.shape == (config.max_num_eqs, config.num_curves, config.num_derivs+1, config.N_p), "y_vals has wrong shape"
-    with open('test_curves.npy', 'wb') as f:
+    if pos:
+        save_str = 'test_poscurves.npy'
+        assert np.all(y_vals[:,:,0,:] >= 0), f"y_vals has negative values when pos is {pos}"
+    else:
+        save_str = 'test_curves.npy'
+    with open(save_str, 'wb') as f:
         np.save(f, y_vals)
 
+# def generate_ordinary():
+#     shape = (config.max_num_eqs, config.num_curves, 1, config.N_p)
+#     # generate array with random values between 1 and 3 with shape
+#     y_vals = np.random.uniform(1, 3, shape)
+#     assert y_vals.shape == (config.max_num_eqs, config.num_curves, 1, config.N_p), "y_vals has wrong shape"
+#     # save y_vals to file
+#     with open('test_ordinary.npy', 'wb') as f:
+#         np.save(f, y_vals)
 
 if __name__ == '__main__':
-    generate_variables()
+    generate_variables(pos = True)

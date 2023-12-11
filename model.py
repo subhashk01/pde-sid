@@ -19,7 +19,12 @@ def find_cq(fs, bases, check_trivial_bases = True, check_trivial_solutions = Tru
     bases = np.array(bases)
     if check_trivial_bases:
         print('#### Removing Trivial Bases ####')
-        trivial = check_trivial(bases, variables)
+        trivial = np.zeros(len(bases))
+        for i,b in enumerate(bases):
+            val = check_function_integral(b, us, variables)
+            print(f'{i}. {b}: {val.mean():.2e}')
+            if np.abs(val.mean()) < 10**-3:
+                trivial[i] = 1
         if np.sum(trivial) != 0:
             print('Removed: ', bases[trivial==1])
             bases = bases[trivial==0]
@@ -27,22 +32,22 @@ def find_cq(fs, bases, check_trivial_bases = True, check_trivial_solutions = Tru
     
     print("#### Computing bases and gradients #####")
     f_grad_prod = create_matrices(bases, fs, us)
-    results = svd_and_sparsify(f_grad_prod)
+    results = svd_and_sparsify(f_grad_prod, tol_cq = 1e-1)
     results['bases'] = bases
 
     if check_trivial_solutions:
         print('#### Calculating Number of Trivial Conserved Quantities ####')
         for triviality in ['non_sol', 'sol']:
             solutions = threshold_and_format(bases, results[triviality+'_cq_sparse'])
-            trivials = check_trivial(solutions, variables)
+            trivials = check_trivial_sols(solutions, variables)
             if triviality == 'sol':
-                print(f'{np.sum(trivials==1)} Trivial '+triviality)
-                print(f'{np.sum(trivials==0)} Non Trivial '+triviality)
+                print(f'{trivials.shape[0]} Trivial '+triviality)
+                print(f'{len(solutions)-len(trivials)} Non Trivial '+triviality)
             results['trivial_'+triviality] = trivials
     return results
 
 
-def svd_and_sparsify(G, return_non_sol = True, tol_cq=1e-6 ):
+def svd_and_sparsify(G, return_non_sol = True, tol_cq=1e-1 ):
     # if return_non_sol, also sparisifies non solutions
     # this parameter is off when checking for triviality
 
@@ -53,21 +58,26 @@ def svd_and_sparsify(G, return_non_sol = True, tol_cq=1e-6 ):
     u, s, v = np.linalg.svd(G)
 
     u,s,v = u[::-1], s[::-1], v[::-1] # orders everything from smallest to largest SV, since that's what we care about
+
+    num_cq = np.sum(s<tol_cq)
+
     results['s_cq_nonorm'] = copy.deepcopy(s)
 
     s = s/np.sum(s)
     results['s_cq'] = copy.deepcopy(s)
 
-    num_cq = np.sum(s<tol_cq) 
+    
     print('Number of Conserved Quantities: ', num_cq)
     solutions = v[:num_cq]
 
     print("#### Sparsifying Solution Thetas ####")
     results['sol_cq'] = copy.deepcopy(solutions)
+    
     sparse_sol = np.asarray([[]])
     if len(solutions):
         sparse_sol = sparsify(solutions)
     results['sol_cq_sparse'] = copy.deepcopy(sparse_sol)
+
     
     if return_non_sol:
         print('#### Sparsifying Non Solution Thetas ####')
@@ -122,43 +132,32 @@ def sparsify(solutions, tol_dep=1e-4, seed=0, sparse_run=10, sparse_tol=1e-32, m
     return solutions
 
 
-def check_trivial(bases, variables, epsilon = 1e-4):
-    # returns an array x of size bases that has a 0 if the base is non trivial and 1 if its trivia;
 
-    # since we want to know if an individual base/solution is degenerate, not if a combination of them is degenerate
-    # we don't actually have to use the sparsification code. this is only necessary for 
-    x = np.zeros(len(bases))
+def check_trivial_sols(sols, variables, epsilon = 1e-2):
+    # finds all linear combinations of sols that are trivial
+
     us = np.load('test_curves.npy')
 
     values = []
-    for b in bases:
-        val = check_function_integral(b, us, variables)
+    print('Checking Trivial')
+    for _,sol in enumerate(sols):
+        val = check_function_integral(sol, us, variables)
         values.append(val)
     values = np.transpose(np.array(values))
 
     with io.StringIO() as buf, redirect_stdout(buf):
-        trivial_svd = svd_and_sparsify(values, return_non_sol = False, tol_cq = 1e-6)
+        trivial_svd = svd_and_sparsify(values, return_non_sol = False, tol_cq = 1e-1)
     trivial_sp = trivial_svd['sol_cq_sparse']
+    trivial_sp = np.matrix.round(trivial_sp, 2)
 
-    if trivial_sp.shape[1]==0: # no solutions found
-        return x 
-
-    for i in range(trivial_sp.shape[0]):
-        # we want there to be a 1 in each row and nothing else
-        row_pos = np.abs(trivial_sp[i])
-        largest_val = np.max(row_pos)
-        if np.abs(1-largest_val)<epsilon and np.abs(1-np.sum(row_pos))<epsilon:
-            # first condition says that the largest value is almost exactly equal 1
-            # second condition forces every other value in row_pos to basically be 0
-            x[np.argmax(row_pos)] = 1
-    x = x.astype(int) 
-    return x
+    return trivial_sp
 
 
 
 
-def threshold_and_format(b, a, threshold=1e-1):
-    if len(a)==0:
+def threshold_and_format(b, a, threshold=1e-1, precision=5):
+
+    if len(a) == 0:
         return ['NO SOLUTIONS']
     assert(a.shape[1] == len(b))
     # Threshold the coefficients
@@ -177,7 +176,7 @@ def threshold_and_format(b, a, threshold=1e-1):
                 if np.abs(coef - np.round(coef)) < threshold:
                     term = f"{coef:.0f}*({basis})"
                 else:
-                    term = f"{coef:.2f}*({basis})"
+                    term = f"{coef:.{precision}f}*({basis})"
                 terms.append(term)
         
         # Join the terms into a single string and append to list
@@ -188,11 +187,29 @@ def threshold_and_format(b, a, threshold=1e-1):
             conserved_quantities.append(conserved_quantity)
     
     return conserved_quantities
-    
 
 if __name__ == '__main__':
-    f = ['u_t = u_xxx-6*u*u_x']
-    b = read_bases()
+    #f = ['u_t = u_xxx-6*u*u_x']
+    #b = read_bases('kdv')
+    #b.extend(['u', 'u_x', 'u_xx', 'u_xxx', 'u_x*u'])
+    #print(b)
+    
+    #b = ['3*u_x*u_xxx**2*u_xxxx - u_xx**2*u_xxx*u_xxxx']
+    b = ['-0.44721*(u_x**3) + -0.89443*(u_xx*u_x*u)',
+         '-0.70711*(u_xx**2) + -0.70711*(u_xx*u)',
+         '0.44721*(u**2*u_xx) + 0.89443*(u_x**2*u)',
+         '0.81650*(u_x**2) + -0.40825*(u_xx**2) + 0.40825*(u_xx*u)',
+         'u_xx',
+         'u_x**2',
+         'u_xx*u']
+    # b = ['u_x**2', 'u**2', 'u_xx**2']
+    
+    #b = ['u_x', 'u_xx', 'u_xxx', 'u_xxxx', 'u_x**3', 'u_xx**3']
+    t = check_trivial_sols(b, ['u'])
+    print(t)
+    bs = [f'CQ{i+1}' for i in range(len(b))]
+    trivial_sols = threshold_and_format(bs, t, precision=2)
+    print(trivial_sols)
 
 
     
