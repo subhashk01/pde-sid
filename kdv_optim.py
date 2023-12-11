@@ -363,13 +363,19 @@ def graph_pca_kdv_messy():
     plt.savefig('figures/kdv_messy_pca.png', bbox_inches = 'tight', dpi = 300)
     plt.show()
 
+
+my_task_id = int(sys.argv[1])
+num_tasks = int(sys.argv[2])
+run_many_kdv_messy(num_epochs = 100, title = 'kdv', start_index=my_task_id, num_nodes = num_tasks)
+
 if __name__ == '__main__':
     #run_many_kdv_messy(num_runs=100, num_epochs=5000)
     #plot_parallel_coordinates()
     #plot_parallel_coordinates()
     #create_kdv_basis(2,3)
     #kdv_messy_manyruns_analytics()
-    run_many_kdv_messy(num_epochs = 100, title = 'kdv')
+
+    pass
     
     #kdv = ['u_t = {0}*u_xxx+{1}*u*u_x+{2}*u_xx']
     
