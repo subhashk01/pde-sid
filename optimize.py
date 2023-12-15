@@ -133,7 +133,7 @@ def optimize(fs, title, bases = 'kdv',lr = .001, A = 0, B = 1, epochs = 5000, T_
         np.save(f'{directory_path}/{precursor}_loss.npy', losses)
         np.save(f'{directory_path}/{precursor}_parameters.npy', parameters)
 
-    return starting_vals, best_param
+    return starting_vals, best_param, best_loss
 
 
 

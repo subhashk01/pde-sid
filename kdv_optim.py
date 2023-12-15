@@ -8,6 +8,8 @@ from itertools import cycle
 import pandas as pd
 from matplotlib import cm
 from sklearn.decomposition import PCA
+import os
+from matplotlib import animation
 
 def create_kdv_basis(max_deriv = 2, max_exp = 3):
     # given the max number of derivs (e.g. 2 is u_xx)
@@ -50,34 +52,37 @@ def create_messy_kdv(max_deriv=3, max_exp=3):
     return [kdv_eq]
 
 
-def plot_kdv_solutions_space(filename):
-    
-    dir = 'optimize/kdv_2params/'
-    best_params_list = None # Initialize an empty list to collect best_param values
-    initials = []
-    for i in range(100):
-        print(i)
-        losses = np.load(f'{dir}run{i}_{filename}_loss.npy')
-        parameters = np.load(f'{dir}run{i}_{filename}_parameters.npy')
-        best_param = parameters[np.argmin(losses[:, 0])]
-        all_best_params = parameters[losses[:, 1] == 5]
+def plot_kdv_solutions_space():
 
-        if best_params_list is None:
-            best_params_list = all_best_params
-        else:
-            best_params_list = np.concatenate((best_params_list, all_best_params), axis=0)
+    parameters = get_all_kdv_messy_parameters(dirs = ['kdv_3params_cluster'])
+    best_params = parameters[:, 1, :].numpy()
+    starting_vals = parameters[:, 0, :].numpy()
+    best_params = inverse_spherical_transform(best_params)
+    starting_vals = inverse_spherical_transform(starting_vals)
+    return
+    # for i in range(100):
+    #     print(i)
+    #     losses = np.load(f'{dir}run{i}_{filename}_loss.npy')
+    #     parameters = np.load(f'{dir}run{i}_{filename}_parameters.npy')
+    #     best_param = parameters[np.argmin(losses[:, 0])]
+    #     all_best_params = parameters[losses[:, 1] == 5]
+
+    #     if best_params_list is None:
+    #         best_params_list = all_best_params
+    #     else:
+    #         best_params_list = np.concatenate((best_params_list, all_best_params), axis=0)
         
         
-        initial = parameters[0]
-        initials.append(initial)
+    #     initial = parameters[0]
+    #     initials.append(initial)
 
-        plt.scatter(initial[0], initial[1], color='b')
-        plt.scatter(best_param[0], best_param[1], color='r')
+    #     plt.scatter(initial[0], initial[1], color='b')
+    #     plt.scatter(best_param[0], best_param[1], color='r')
 
-        # Draw lines from the initial point to each best point
-        plt.plot([initial[0], best_param[0]], [initial[1], best_param[1]], color='black', alpha=0.05)
+    #     # Draw lines from the initial point to each best point
+    #     plt.plot([initial[0], best_param[0]], [initial[1], best_param[1]], color='black', alpha=0.05)
         
-        plt.scatter(all_best_params[:, 0], all_best_params[:, 1], color='r', alpha=0.5)
+    #     plt.scatter(all_best_params[:, 0], all_best_params[:, 1], color='r', alpha=0.5)
 
     # Set the Greek letter labels and adjust x-ticks
     plt.xlabel(r'$\theta$')
@@ -147,25 +152,32 @@ def run_many_kdv_messy(title = 'kdv_messy',num_runs = 100, num_epochs = 5000, st
     starting_vals = starting_vals[start_index:len(starting_vals):num_nodes]
 
     run_num = start_index
+    losses = []
     for starting_val in starting_vals:
 
-        _, best_param = optimize(kdv, title=title, bases='kdv', epochs=num_epochs, save=False, starting_vals=starting_val)
+        _, best_param, best_loss = optimize(kdv, title=title, bases='kdv', epochs=num_epochs, save=False, starting_vals=starting_val)
         combined = torch.cat((starting_val.unsqueeze(0), best_param.unsqueeze(0)), dim=0)
         print(combined)
         vals.append(combined)
         vals_tensor = torch.stack(vals)
-        torch.save(vals_tensor, f'optimize/{title}_{num_vars}params/{title}_{run_num}run_{num_epochs}epochs_{num_runs}runs.pt')
+        fname =  f'optimize/{title}_{num_vars}params/{title}_{run_num}run_{num_epochs}epochs_{num_runs}runs'
+        torch.save(vals_tensor,f'{fname}.pt')
+
+        losses.append(best_loss.item())
+        torch.save(torch.tensor(losses), f'{fname}_loss.pt')
     # read in tensor
     #vals_tensor = torch.load(f'optimize/{title}_{num_vars}params/{title}_{run_num}run_{num_epochs}epochs_{num_runs}runs.pt')
 
-def get_all_kdv_messy_parameters():
+def get_all_kdv_messy_parameters(dirs):
     parameters = None
-    for i in [5,9,14,18,100]:
-        filename = f'kdv_messy_5000epochs_{i}runs.pt'
-        if parameters is None:
-            parameters = torch.load(f'optimize/kdv_messy_33params/{filename}')
-        else:
-            parameters = torch.cat((parameters, torch.load(f'optimize/kdv_messy_33params/{filename}')), dim = 0)
+    basedir = 'optimize'
+    for dir in dirs:
+        totaldir = f'{basedir}/{dir}'
+        for file in os.listdir(totaldir):
+            if parameters is None:
+                parameters = torch.load(f'{totaldir}/{file}')
+            else:
+                parameters = torch.cat((parameters, torch.load(f'{totaldir}/{file}')), dim = 0)
     return parameters
 
 
@@ -228,122 +240,151 @@ def kdv_messy_manyruns_analytics():
         print(component_map[i],f'{avg:.3f}')
     
 def graph_pca_kdv_messy():
-    parameters = get_all_kdv_messy_parameters()
+    parameters = get_all_kdv_messy_parameters(dirs = ['kdv_33params_1000cluster', 'kdv_33params_500cluster'])
+
+    
     best_params = parameters[:, 1, :].numpy()
     starting_vals = parameters[:, 0, :].numpy()
     # pca best_params and give how much variance is in each component
     component_map = get_component_map(create_messy_kdv(3,3))
     component_list = np.asarray([component_map[i][0] for i in range(len(component_map))])
-    pca = PCA(n_components=2)
+    pca = PCA(n_components=10)
     pca.fit(best_params)
     print(pca.explained_variance_ratio_)
     # give me the vectors
     vectors = pca.components_
     threshold = 0.1
     components = threshold_and_format(component_list, vectors, precision = 2, threshold = threshold)
-    plt.figure(figsize = (14,8))
+    fig = plt.figure(figsize = (14,8))
     # transform orginal data using pca
     transformed_best = pca.transform(best_params)
-    plt.scatter(transformed_best[:,0], transformed_best[:,1], color = 'b', label = 'Best Parameters PCAd')
+    pc1, pc2, pc3 = 0, 1, 2 # i and j are the components we want to plot
+
+    #3d scatter plot
+    ax = plt.axes(projection='3d')
+    ax.scatter(transformed_best[:,pc1], transformed_best[:,pc2], transformed_best[:,pc3], color = 'b', alpha = .1, label = 'Best Parameters PCAd')
     # transform starting data using pca
     transformed_start = pca.transform(starting_vals)
-    plt.scatter(transformed_start[:,0], transformed_start[:,1], color = 'r', label = 'Starting Parameters PCAd')
+    ax.scatter(transformed_start[:,pc1], transformed_start[:,pc2], transformed_start[:,pc3], color = 'r', alpha = .1, label = 'Starting Parameters PCAd')
+    
+    ax.set_xlabel(f'PC{pc1+1} {100*pca.explained_variance_ratio_[pc1]:.1f}% Var')
+    ax.set_ylabel(f'PC{pc2+1} {100*pca.explained_variance_ratio_[pc2]:.1f}% Var')
+    ax.set_zlabel(f'PC{pc3+1} {100*pca.explained_variance_ratio_[pc3]:.1f}% Var')
+
+    def rotate(angle):
+     ax.view_init(azim=angle)
+
+    angle = 3
+    ani = animation.FuncAnimation(fig, rotate, frames=np.arange(0, 360, angle), interval=50)
+    ani.save('kdv_messy.gif', writer=animation.PillowWriter(fps=15))
+
+    #plt.show()
+
+    return
+
+
+    plt.scatter(transformed_best[:,pc1], transformed_best[:,pc2], color = 'b', alpha = .1, label = 'Best Parameters PCAd')
+    # transform starting data using pca
+    transformed_start = pca.transform(starting_vals)
+    plt.scatter(transformed_start[:,pc1], transformed_start[:,pc2], color = 'r', alpha = .1, label = 'Starting Parameters PCAd')
     # draw lines between every start point and best param
+
+    
     for i in range(len(transformed_best)):
-        plt.plot([transformed_start[i,0], transformed_best[i,0]], [transformed_start[i,1], transformed_best[i,1]], color = 'k', alpha = 0.05)
+        plt.plot([transformed_start[i,pc1], transformed_best[i,pc1]], [transformed_start[i,pc2], transformed_best[i,pc2]], color = 'k', alpha = 0.01)
     
     # find transformed best param with lowest y val
-    lowest_y_arg = np.argmin(transformed_best[:,1])
+    lowest_y_arg = np.argmin(transformed_best[:,pc2])
     lowest_y = np.array([best_params[lowest_y_arg]])
     low_y_comp = threshold_and_format(component_list, lowest_y, precision = 2, threshold = 5e-2)
     # at the coordinates of lowest_y, write the string low_y_comp
-    plt.annotate(low_y_comp[0], (0.01+transformed_best[lowest_y_arg,0], transformed_best[lowest_y_arg,1]))
+    plt.annotate(low_y_comp[0], (0.01+transformed_best[lowest_y_arg,pc1], transformed_best[lowest_y_arg,pc2]))
     
     # do the same for highest_y val
-    highest_y_arg = np.argmax(transformed_best[:,1])
+    highest_y_arg = np.argmax(transformed_best[:,pc2])
     highest_y = np.array([best_params[highest_y_arg]])
     high_y_comp = threshold_and_format(component_list, highest_y, precision = 2, threshold = 5e-2)
     # at the coordinates of lowest_y, write the string low_y_comp
-    plt.annotate(high_y_comp[0], (0.01+transformed_best[highest_y_arg,0], transformed_best[highest_y_arg,1]))
+    plt.annotate(high_y_comp[0], (0.01+transformed_best[highest_y_arg,pc1], transformed_best[highest_y_arg,pc2]))
 
     # do the same for lowest x val
-    lowest_x_arg = np.argmin(transformed_best[:,0])
+    lowest_x_arg = np.argmin(transformed_best[:,pc1])
     lowest_x = np.array([best_params[lowest_x_arg]])
     low_x_comp = threshold_and_format(component_list, lowest_x, precision = 2, threshold = 5e-2)
     # at the coordinates of lowest_x write the string low_x_comp
-    plt.annotate(low_x_comp[0], (transformed_best[lowest_x_arg,0],transformed_best[lowest_x_arg,1]+.05))
+    plt.annotate(low_x_comp[0], (transformed_best[lowest_x_arg,pc1],transformed_best[lowest_x_arg,pc2]+.05))
 
     # do the same for highest x val
-    highest_x_arg = np.argmax(transformed_best[:,0])
+    highest_x_arg = np.argmax(transformed_best[:,pc1])
     highest_x = np.array([best_params[highest_x_arg]])
     high_x_comp = threshold_and_format(component_list, highest_x, precision = 2, threshold = 5e-2)
     # at the coordinates of lowest_y, write the string low_y_comp
-    plt.annotate(high_x_comp[0], (-.5+transformed_best[highest_x_arg,0], .05+transformed_best[highest_x_arg,1]))
+    plt.annotate(high_x_comp[0], (-.5+transformed_best[highest_x_arg,pc1], .05+transformed_best[highest_x_arg,pc2]))
 
 
-    # Assuming `transformed_best` is your array of points
-    x_values = transformed_best[:, 0]
-    y_values = transformed_best[:, 1]
+    # # Assuming `transformed_best` is your array of points
+    # x_values = transformed_best[:, pc1]
+    # y_values = transformed_best[:, pc2]
 
-    # Calculate the distance from the diagonal y = x
-    # For the first diagonal, the distance of the point (x, y) from the line y = x is |y - x| / sqrt(2)
-    distances = np.abs(y_values + x_values) / np.sqrt(2)
-    print(distances)
+    # # Calculate the distance from the diagonal y = x
+    # # For the first diagonal, the distance of the point (x, y) from the line y = x is |y - x| / sqrt(2)
+    # distances = np.abs(y_values + x_values) / np.sqrt(2)
+    # print(distances)
 
-    # Define a tolerance for how close points should be to the line y = x to be considered part of the diagonal
-    tolerance = .5 # This is something you might need to adjust
+    # # Define a tolerance for how close points should be to the line y = x to be considered part of the diagonal
+    # tolerance = .5 # This is something you might need to adjust
 
-    # Select points that are within the tolerance
-    diagonal_points = transformed_best[distances < tolerance]
+    # # Select points that are within the tolerance
+    # diagonal_points = transformed_best[distances < tolerance]
 
-    eqs = threshold_and_format(component_list, best_params[distances<tolerance], precision = 2, threshold = 1e-1)
-    for i, eq in enumerate(eqs):
-        print(f'{i+1}. {eq}')
+    # eqs = threshold_and_format(component_list, best_params[distances<tolerance], precision = 2, threshold = 1e-1)
+    # # for i, eq in enumerate(eqs):
+    # #     print(f'{i+1}. {eq}')
 
-    # Now, perform linear regression on these points
-    # You can use np.polyfit with a 1st-degree polynomial for a linear fit
-    coefficients = np.polyfit(diagonal_points[:, 0], diagonal_points[:, 1], 1)
+    # # Now, perform linear regression on these points
+    # # You can use np.polyfit with a 1st-degree polynomial for a linear fit
+    # coefficients = np.polyfit(diagonal_points[:, pc1], diagonal_points[:, pc2], 1)
 
-    # find r^2 of polynpmoal fit
-    residuals = np.polyval(coefficients, diagonal_points[:,0]) - diagonal_points[:,1]
-    ss_res = np.sum(residuals**2)
-    ss_tot = np.sum((diagonal_points[:,1]-np.mean(diagonal_points[:,1]))**2)
-    r_squared = 1 - (ss_res/ss_tot)
+    # # find r^2 of polynpmoal fit
+    # residuals = np.polyval(coefficients, diagonal_points[:,pc1]) - diagonal_points[:,pc2]
+    # ss_res = np.sum(residuals**2)
+    # ss_tot = np.sum((diagonal_points[:,pc2]-np.mean(diagonal_points[:,pc2]))**2)
+    # r_squared = 1 - (ss_res/ss_tot)
 
-    # Create a polynomial from the coefficients
-    polynomial = np.poly1d(coefficients)
+    # # Create a polynomial from the coefficients
+    # polynomial = np.poly1d(coefficients)
 
-    # Generate a range of x-values from min to max of the diagonal points
-    fit_x_values = np.linspace(diagonal_points[:, 0].min(), diagonal_points[:, 0].max(), 100)
+    # # Generate a range of x-values from min to max of the diagonal points
+    # fit_x_values = np.linspace(diagonal_points[:, pc1].min(), diagonal_points[:, pc1].max(), 100)
 
-    # Calculate the y-values from the polynomial
-    fit_y_values = polynomial(fit_x_values)
+    # # Calculate the y-values from the polynomial
+    # fit_y_values = polynomial(fit_x_values)
 
-    # Plot the line of best fit
-    #plt.plot(fit_x_values, fit_y_values, color='b', linewidth=2, label = f'y = {coefficients[0]:.2f}x + {coefficients[1]:.2f} | R^2 = {r_squared:.2f}')
+    # # Plot the line of best fit
+    # #plt.plot(fit_x_values, fit_y_values, color='b', linewidth=2, label = f'y = {coefficients[0]:.2f}x + {coefficients[1]:.2f} | R^2 = {r_squared:.2f}')
 
-    # make fit_x_values fit_y_values into single array
-    fit_points = np.array([fit_x_values, fit_y_values]).T
-    # transform fit_points back to original space
-    fit_points = pca.inverse_transform(fit_points)
-    # normalize every row in fit_points
-    fit_points = fit_points/np.sqrt(np.sum(fit_points**2, axis = 1, keepdims = True))
+    # # make fit_x_values fit_y_values into single array
+    # fit_points = np.array([fit_x_values, fit_y_values]).T
+    # # transform fit_points back to original space
+    # #fit_points = pca.inverse_transform(fit_points)
+    # # normalize every row in fit_points
+    # #fit_points = fit_points/np.sqrt(np.sum(fit_points**2, axis = 1, keepdims = True))
 
-    # i want to find the row of fit_points that has the fewest number of values below a threshold
-    # and then print out the equation of that row
-    # first, threshold the fit_points
-    # now, find the number of values below threshold in each row
-    thresh = 5e-2
-    num_above_thresh = np.sum(np.abs(fit_points) > thresh, axis = 1)
-    print(num_above_thresh)
-    min_row = np.argmin(num_above_thresh)
+    # # i want to find the row of fit_points that has the fewest number of values below a threshold
+    # # and then print out the equation of that row
+    # # first, threshold the fit_points
+    # # now, find the number of values below threshold in each row
+    # thresh = 5e-2
+    # num_above_thresh = np.sum(np.abs(fit_points) > thresh, axis = 1)
+    # print(num_above_thresh)
+    # min_row = np.argmin(num_above_thresh)
 
-    # find the row with the fewest number of values below threshold
-    # min_row is when num_above_thresh == 1
-    # print the equation of that row
-    print(np.sum(fit_points[min_row]**2))
-    eq = threshold_and_format(component_list, np.array([fit_points[min_row]]), precision = 2, threshold = thresh)
-    print(eq)
+    # # find the row with the fewest number of values below threshold
+    # # min_row is when num_above_thresh == 1
+    # # print the equation of that row
+    # print(np.sum(fit_points[min_row]**2))
+    # eq = threshold_and_format(component_list, np.array([fit_points[min_row]]), precision = 2, threshold = thresh)
+    # print(eq)
     
 
 
@@ -355,27 +396,55 @@ def graph_pca_kdv_messy():
 
     # Create a polynomial from the coefficients
     #polynomial = np.poly1d(coefficients)
-    
-    plt.xlabel(components[0]+f'\nThresh at {threshold}. Explained Var = {pca.explained_variance_ratio_[0]:.3f}')
-    plt.ylabel(components[1]+ f'\nThresh at {threshold}. Explained Var = {pca.explained_variance_ratio_[1]:.3f}')
-    plt.title(f'PCA of KdV w/ {best_params.shape[1]} Parameters ({best_params.shape[0]} Runs, {np.sum(pca.explained_variance_ratio_):.2f} Var Accounted For)')
+    pc1_var, pc2_var = pca.explained_variance_ratio_[pc1], pca.explained_variance_ratio_[pc2]
+    plt.xlabel(f'PC{pc1+1}: {components[pc1]}\nThresh at {threshold}. Explained Var = {pc1_var:.3f}')
+    plt.ylabel(f'PC{pc2+1}: {components[pc2]}\nThresh at {threshold}. Explained Var = {pc2_var:.3f}')
+    plt.title(f'PC{pc1+1},{pc2+1} of KdV w/ {best_params.shape[1]} Parameters ({best_params.shape[0]} Runs, {pc1_var+pc2_var:.2f} Var Accounted For)')
     plt.legend(loc = 5)
     plt.savefig('figures/kdv_messy_pca.png', bbox_inches = 'tight', dpi = 300)
     plt.show()
 
 
-my_task_id = int(sys.argv[1])
-num_tasks = int(sys.argv[2])
-run_many_kdv_messy(num_epochs = 100, title = 'kdv', start_index=my_task_id, num_nodes = num_tasks)
+# my_task_id = int(sys.argv[1])
+# num_tasks = int(sys.argv[2])
+# run_many_kdv_messy(num_epochs = 100, title = 'kdv', start_index=my_task_id, num_nodes = num_tasks)
+def read_cluster_run():
+    for i in range(8):
+        t = torch.load(f'optimize/kdv_3params_cluster/kdv_{i}run_100epochs_500runs.pt')
+        print(t.shape)
+
+
+def plot_kdv_3param():
+    parameters = get_all_kdv_messy_parameters(dirs = ['kdv_3params_cluster'])
+
+    parameters = parameters[:,1,:].numpy()
+    sorted_indices = np.argsort(parameters[:,1])
+    parameters = parameters[sorted_indices]
+    print(parameters)
+    # plot 3d scatter of parameters
+    fig = plt.figure(figsize = (8,8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(parameters[:,0], parameters[:,1], parameters[:,2])
+    ax.set_xlabel('u_xxx')
+    ax.set_ylabel('u_x*u')
+    ax.set_zlabel('u_xx')
+    plt.show()
+
+
+    
+
 
 if __name__ == '__main__':
-    #run_many_kdv_messy(num_runs=100, num_epochs=5000)
+    run_many_kdv_messy(title = 'kdv', num_runs=100, num_epochs=10)
     #plot_parallel_coordinates()
     #plot_parallel_coordinates()
     #create_kdv_basis(2,3)
     #kdv_messy_manyruns_analytics()
 
-    pass
+    #read_cluster_run()
+    #graph_pca_kdv_messy()
+    #plot_kdv_3param()
+    #plot_kdv_solutions_space()
     
     #kdv = ['u_t = {0}*u_xxx+{1}*u*u_x+{2}*u_xx']
     
