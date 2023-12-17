@@ -17,7 +17,7 @@ def param_list_flat(param_list):
     values = torch.cat(values)
     return values
 
-def optimize(fs, title, bases = 'kdv',lr = .001, A = 0, B = 1, epochs = 5000, T_max=None, starting_vals = None, fname = '', save = True, sphere = True):
+def optimize(fs, title, bases = 'kdv',lr = .001, A = 0, B = 1, epochs = 5000, T_max=None, starting_vals = None, fname = '', save = True, sphere = True, early_stop = False):
     bs = read_bases(bases)
 
     us = np.load('test_curves.npy')
@@ -122,6 +122,16 @@ def optimize(fs, title, bases = 'kdv',lr = .001, A = 0, B = 1, epochs = 5000, T_
         if epoch % 10 == 0:
             parameters_list.append(values.detach().numpy())
             loss_list.append([loss.item(), actual_neff.item()])
+
+        if early_stop and len(loss_list)>100:
+            neff = np.array(loss_list)
+            neff_recent = neff[-100:,0]
+            recent_stdev = np.std(neff_recent)
+            print(recent_stdev)
+            if recent_stdev<1e-4:
+                print(f'EARLY STOP AT EPOCH {epoch}')
+                break
+
 
     losses = np.array(loss_list)
     parameters = np.array(parameters_list)

@@ -154,13 +154,14 @@ if __name__ == '__main__':
     #fs = ['u_t = u_xxx']
     #fs = ['u_t = 3*u_x**2*u_xxx + 1*u_x**3 + 3*u_xxx**2*u_x + 1*u_xxx**3']
     #fs = ['u_t = u_x**3+u_xxx**3+3*u_x*u_xxx**2+3*u_x**2*u_xxx']
-    fs = ['u_t = u_x**3+u_xxxx**2']
+    
+    fs = ['u_t = -0.42*(u_x**2*u_xxx) + -0.29*(u_x**3) + -0.62*(u_xx**2*u_x) + -0.45*(u_xx**2*u_xxx) + -0.34*(u_xxx**2*u_x) + -0.14*(u_xxx**2*u_xx) + 0.06*(u_xxx**3) + 0.05*(u_xxx*u_x*u)']
     # fs = ['x_t = x*y-x*z', 
     #       'y_t = y*z-y*x',
     #       'z_t = z*x-z*y']
     #fs = ['x_t = x-x*y', 'y_t =x*y-y']
     #fs = give_equation(eq)
-    us = np.load('test_poscurves.npy')
+    us = np.load('test_curves.npy')
     results = find_cq(fs, bs, check_trivial_bases=True, check_trivial_solutions = True)
     graph_singular_values(results, fs, us, save = f'newpde_a0.png')
 

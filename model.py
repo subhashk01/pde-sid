@@ -117,7 +117,7 @@ def sparsify(solutions, tol_dep=1e-4, seed=0, sparse_run=10, sparse_tol=1e-32, m
         print("{}/{}".format(i,num_seed))
         seed = i
         np.random.seed(seed)
-        V = np.random.randn(n, n)
+        V = np.random.randn(n, n) 
         sol = minimize(L1, V, method = "L-BFGS-B", jac=grad_L1, tol=1e-10, options={'maxiter':max_iter})
         sol_funcs.append(sol.fun)
         sols.append(sol.x)

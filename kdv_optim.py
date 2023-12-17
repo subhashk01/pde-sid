@@ -10,6 +10,8 @@ from matplotlib import cm
 from sklearn.decomposition import PCA
 import os
 from matplotlib import animation
+from matplotlib.cm import ScalarMappable
+from scipy.optimize import least_squares
 
 def create_kdv_basis(max_deriv = 2, max_exp = 3):
     # given the max number of derivs (e.g. 2 is u_xx)
@@ -170,15 +172,23 @@ def run_many_kdv_messy(title = 'kdv_messy',num_runs = 100, num_epochs = 5000, st
 
 def get_all_kdv_messy_parameters(dirs):
     parameters = None
+    losses = None
     basedir = 'optimize'
     for dir in dirs:
         totaldir = f'{basedir}/{dir}'
         for file in os.listdir(totaldir):
-            if parameters is None:
-                parameters = torch.load(f'{totaldir}/{file}')
-            else:
-                parameters = torch.cat((parameters, torch.load(f'{totaldir}/{file}')), dim = 0)
-    return parameters
+            if 'loss.pt' not in file:
+                if parameters is None:
+                    parameters = torch.load(f'{totaldir}/{file}')
+                else:
+                    parameters = torch.cat((parameters, torch.load(f'{totaldir}/{file}')), dim = 0)
+
+                if losses is None:
+                    losses = torch.load(f'{totaldir}/{file}'[:-3]+'_loss.pt')
+                else:
+                    losses = torch.cat((losses, torch.load(f'{totaldir}/{file}'[:-3]+'_loss.pt')), dim = 0)
+        
+    return parameters, losses
 
 
 def plot_parallel_coordinates():
@@ -238,17 +248,69 @@ def kdv_messy_manyruns_analytics():
     for i in sorted_indices:
         avg = np.mean(np.abs(best_params[:,i]), axis = 0)
         print(component_map[i],f'{avg:.3f}')
-    
-def graph_pca_kdv_messy():
-    parameters = get_all_kdv_messy_parameters(dirs = ['kdv_33params_1000cluster', 'kdv_33params_500cluster'])
+
+def ellipse_parametric(t, params):
+    # Unpack parameters: center (x0, y0, z0), axes lengths (a, b), and rotation angles (phi, theta, psi)
+    x0, y0, z0, a, b, phi, theta, psi = params
+
+    # Rotation matrices
+    Rz = np.array([
+        [np.cos(phi), -np.sin(phi), 0],
+        [np.sin(phi),  np.cos(phi), 0],
+        [0,            0,           1]
+    ])
+
+    Ry = np.array([
+        [ np.cos(theta), 0, np.sin(theta)],
+        [ 0,             1, 0           ],
+        [-np.sin(theta), 0, np.cos(theta)]
+    ])
+
+    Rx = np.array([
+        [1, 0,            0           ],
+        [0, np.cos(psi), -np.sin(psi)],
+        [0, np.sin(psi),  np.cos(psi)]
+    ])
+
+    # 2D Ellipse equation
+    x = a * np.cos(t)
+    y = b * np.sin(t)
+    z = np.zeros_like(t)  # Z-coordinate is initially zero
+
+    # Combine into a single 2D array (3 rows, N columns)
+    points_2d = np.vstack([x, y, z])
+
+    # Apply rotations and translation
+    xyz = Rz @ Ry @ Rx @ points_2d + np.array([[x0], [y0], [z0]])  # Ensure the translation is a column vector
+    return xyz
+
+def cost_function(params, points, neff):
+    # Calculate the sum of squared distances from each point to the ellipse, weighted by neff^2
+    residuals = []
+    for point, weight in zip(points, neff):
+        # Optimize this part to find the closest point on the ellipse
+        t = np.linspace(0, 2 * np.pi, 100)
+        distances = np.linalg.norm(ellipse_parametric(t, params) - point[:, np.newaxis], axis=0)
+        min_distance = np.min(distances)
+        weighted_residual = weight**6 * min_distance**2
+        residuals.append(weighted_residual)
+    return residuals
+
+# Example usage
+# neff = ...  # Array of weights, one for each point in best_params
+# result = least_squares(cost_function, initial_guess, args=(best_params, neff))
 
     
+def graph_pca_kdv_messy():
+    parameters, losses = get_all_kdv_messy_parameters(dirs = ['kdv_33params_10000_5123cluster'])#, 'kdv_33params_500cluster'])
+    neff = -losses
+
     best_params = parameters[:, 1, :].numpy()
     starting_vals = parameters[:, 0, :].numpy()
     # pca best_params and give how much variance is in each component
     component_map = get_component_map(create_messy_kdv(3,3))
     component_list = np.asarray([component_map[i][0] for i in range(len(component_map))])
-    pca = PCA(n_components=10)
+    pca = PCA(n_components=3)
     pca.fit(best_params)
     print(pca.explained_variance_ratio_)
     # give me the vectors
@@ -260,29 +322,114 @@ def graph_pca_kdv_messy():
     transformed_best = pca.transform(best_params)
     pc1, pc2, pc3 = 0, 1, 2 # i and j are the components we want to plot
 
-    #3d scatter plot
-    ax = plt.axes(projection='3d')
-    ax.scatter(transformed_best[:,pc1], transformed_best[:,pc2], transformed_best[:,pc3], color = 'b', alpha = .1, label = 'Best Parameters PCAd')
-    # transform starting data using pca
-    transformed_start = pca.transform(starting_vals)
-    ax.scatter(transformed_start[:,pc1], transformed_start[:,pc2], transformed_start[:,pc3], color = 'r', alpha = .1, label = 'Starting Parameters PCAd')
     
+    ax = plt.axes(projection='3d')
+
     ax.set_xlabel(f'PC{pc1+1} {100*pca.explained_variance_ratio_[pc1]:.1f}% Var')
     ax.set_ylabel(f'PC{pc2+1} {100*pca.explained_variance_ratio_[pc2]:.1f}% Var')
     ax.set_zlabel(f'PC{pc3+1} {100*pca.explained_variance_ratio_[pc3]:.1f}% Var')
 
-    def rotate(angle):
-     ax.view_init(azim=angle)
+    
 
-    angle = 3
-    ani = animation.FuncAnimation(fig, rotate, frames=np.arange(0, 360, angle), interval=50)
-    ani.save('kdv_messy.gif', writer=animation.PillowWriter(fps=15))
+    sorted_indices = np.argsort(-neff)
+    neff = neff[sorted_indices]
+    best_params = best_params[sorted_indices]
+    parameters = parameters[sorted_indices]
+    transformed_best = transformed_best[sorted_indices]
+    eqs = threshold_and_format(component_list, parameters[:,1,:], precision = 2, threshold = 5e-2)
 
-    #plt.show()
+    # upb, lowb = 6, 5.5
+    # transformed_best = transformed_best[(neff<upb) &  (neff>lowb)]
+    # neff = neff[(neff<upb) &  (neff>lowb)]
+
+    #3d scatter plot
+    # Choose a colormap
+    cmap = plt.cm.viridis
+
+    # Create a ScalarMappable object with the chosen colormap and the loss values as the bounds
+    mappable = ScalarMappable(cmap=cmap)
+    mappable.set_array(neff)
+
+    # Use the loss values as color codes
+    colors = mappable.to_rgba(neff)
+    
+    
+    #ax.scatter(transformed_best[:,pc1], transformed_best[:,pc2], transformed_best[:,pc3], alpha = .5, color = colors, label = 'Best Parameters PCAd')
+    # transform starting data using pca
+    transformed_start = pca.transform(starting_vals)
+    #ax.scatter(transformed_start[:,pc1], transformed_start[:,pc2], transformed_start[:,pc3], color = 'r', alpha = .1, label = 'Starting Parameters PCAd')
+    
+    # Create a colorbar
+    cbar = plt.colorbar(mappable, ax=ax)
+    cbar.set_label('neff')
+
+    ax.scatter(transformed_best[:,pc1], transformed_best[:,pc2], transformed_best[:,pc3], alpha = .5, color = colors, label = 'Best Parameters PCAd')
+    # for i in range(1000):
+    #     print(f'{i+1}. {neff[i]:.2f}: {eqs[i]}')
+
+    # #Initial guess for parameters: center at origin, unit axes, no rotation
+    # initial_guess = [0, 0, 0, 1, 1, 0, 0, 0]
+
+    # # Perform the optimization
+    # best_ellipse_params = transformed_best[:, :3][neff<7]
+    # result = least_squares(cost_function, initial_guess, args=(best_ellipse_params,neff[neff<7]))
+
+    # # Use the optimized parameters
+    # params_optimized = result.x
+    # print('Opt Params', params_optimized)
+    # t_values = np.linspace(0, 2 * np.pi, 1000)
+    # ellipse_points = np.array([ellipse_parametric(t, params_optimized) for t in t_values]).T[0]
+
+    # # Plot the ellipse
+    # print(ellipse_points.shape)
+    # # save ellipse points
+    # np.save('ellipse_points.npy', ellipse_points)
+
+    # ellipse_points = np.load('ellipse_points.npy')
+    # #ax.plot(ellipse_points[0], ellipse_points[1], ellipse_points[2], color='red', label='Best Fit Ellipse')
+    # ellipse_points = np.swapaxes(ellipse_points, 0, 1)
+    # #inverse pca transform ellipse points
+    # ellipse_points = pca.inverse_transform(ellipse_points)
+    # switch dim 0 and 1 for ellipse_points
+    # plot ellipse points
+    # ax.plot(ellipse_points[:,0], ellipse_points[:,1], ellipse_points[:,2], color='red', label='Best Fit Ellipse')
+    
+    # eqs = threshold_and_format(component_list, ellipse_points, precision = 2, threshold = 5e-2)
+    # # choose only 100 eqs to look at in order
+    # indices = np.linspace(0, len(eqs), 100, endpoint = False, dtype = int)
+
+    # def rotate(angle):
+    #  ax.view_init(azim=angle)
+
+    # angle = 3
+    # ani = animation.FuncAnimation(fig, rotate, frames=np.arange(0, 360, angle), interval=50)
+    # ani.save('kdv_messy.gif', writer=animation.PillowWriter(fps=15))
+
+
+    
+    print(neff.shape)
+
+    plt.show()
 
     return
-
-
+    #cut off u_xxx solutions to see structure
+    best_params = best_params[neff<7]
+    neff = neff[neff<7]
+    # redo the pca in 2dimensions
+    pca = PCA(n_components=2)
+    pca.fit(best_params)
+    print(pca.explained_variance_ratio_)
+    # give me the vectors
+    vectors = pca.components_
+    threshold = 0.1
+    components = threshold_and_format(component_list, vectors, precision = 2, threshold = threshold)
+    fig = plt.figure(figsize = (14,8))
+    # transform orginal data using pca
+    transformed_best = pca.transform(best_params)
+    pc1, pc2 = 0, 1 # i and j are the components we want to plot
+    plt.scatter(transformed_best[:,pc1], transformed_best[:,pc2], color = 'b', alpha = .1, label = 'Best Parameters PCAd')
+    plt.show()
+    return
     plt.scatter(transformed_best[:,pc1], transformed_best[:,pc2], color = 'b', alpha = .1, label = 'Best Parameters PCAd')
     # transform starting data using pca
     transformed_start = pca.transform(starting_vals)
@@ -431,11 +578,25 @@ def plot_kdv_3param():
     plt.show()
 
 
-    
+def test_lrs():
+    print('hi')
+    # test different learning rates
+    parameters, losses = get_all_kdv_messy_parameters(dirs = ['kdv_33params_10000cluster'])
+    sorted_indices = np.argsort(-losses)
+    parameters = parameters[sorted_indices]
+    losses = losses[sorted_indices]
+    starting_vals = parameters[:3,0,:]
+
+    lrs = [1e-2, 5e-2, 1e-3]
+    kdv = create_messy_kdv(3,3)
+    for lr in lrs:
+        for i,starting_val in enumerate(starting_vals):
+            print(losses[i])
+            optimize(kdv, fname = f'test{i}', title='kdvlr', bases='kdv', epochs=20000, early_stop=True, save=True, starting_vals = starting_val, lr = lr)
 
 
 if __name__ == '__main__':
-    run_many_kdv_messy(title = 'kdv', num_runs=100, num_epochs=10)
+    #run_many_kdv_messy(title = 'kdv', num_runs=100, num_epochs=10)
     #plot_parallel_coordinates()
     #plot_parallel_coordinates()
     #create_kdv_basis(2,3)
@@ -443,6 +604,56 @@ if __name__ == '__main__':
 
     #read_cluster_run()
     #graph_pca_kdv_messy()
+    test_lrs()
+
+
+    kdv = create_messy_kdv(3,3)
+    component_map = get_component_map(kdv)
+    base_components = [component_map[i][0] for i in range(len(component_map))]
+    
+    file = 'optimize/kdv_33params/lr0.001_A0_B1_epochs20000_cos_sphereparam'
+    starting_vals = [.1]+[.5]*(len(base_components)-1)
+    starting_vals = torch.tensor(starting_vals)
+
+    parameters, losses = get_all_kdv_messy_parameters(dirs = ['kdv_33params_10000cluster'])
+    neff = -losses
+    sorted_indices = np.argsort(losses)
+
+    eqs = threshold_and_format(base_components, parameters[:,1,:], precision = 2, threshold = 5e-2)
+    # print(eqs)
+    # for i, index in enumerate(sorted_indices):
+    #     print(f'{i+1}. {neff[index]:.2f}: {eqs[index]}')
+    #     if neff[index]<7:
+    #         break
+    #graph_pca_kdv_messy()
+
+    #optimize(kdv, title='kdv', bases='kdv', fname = 'uxxx', epochs=5000, save=True, starting_vals = starting_vals)
+    
+    # params = np.load(file+'_parameters.npy')
+    # losses = np.load(file+'_loss.npy')
+    # neff = -losses[:,0]
+    # print(neff.shape)
+    # # running stdev of 100 entries of losses
+    # running_stdev = []
+    # print(neff)
+    # for i in range(100, len(neff)):
+    #     running_stdev.append(np.std(neff[i-100:i]))
+    # running_stdev = np.array(running_stdev)
+    # print(running_stdev)
+    # epochs = np.linspace(1000, 16760, 1577)
+    # plt.plot(epochs, running_stdev, color = 'b')
+    # plt.title(f'Running Stdev of neff over 1000 epochs\n{file}')
+    # #plt.plot(epochs, neff[100:], color = 'r', label = 'neff')
+    # plt.yscale('log')
+    # plt.show()
+    #eq = threshold_and_format(base_components, end_vals, threshold = 1e-3)
+    #print(eq)
+    #optimize(kdv, fname = 'nouxxx', title='kdv', bases='kdv', epochs=50000, early_stop=True, save=True, starting_vals = starting_vals)
+
+
+    #plot_loss_parameters(kdv, 'kdv', 'lr0.001_A0_B1_epochs20000_cos_sphereparam')
+    #c = np.load('test_curves.npy')
+    #print(c.shape)
     #plot_kdv_3param()
     #plot_kdv_solutions_space()
     
